@@ -1,0 +1,22 @@
+{
+  "version": "1.1",
+  "identities": {
+    "admin": {
+      "slashCommands": true,
+      "allowedCommands": ["*"],
+      "escalation": "none",
+      "infoLevel": "owner_only"
+    },
+    "member": {
+      "slashCommands": true,
+      "allowedCommands": ["/new", "/status", "/help", "/upgrade"],
+      "escalation": "partial",
+      "infoLevel": "internal"
+    },
+    "guest": {
+      "slashCommands": false,
+      "escalation": "auto",
+      "infoLevel": "public"
+    }
+  }
+}

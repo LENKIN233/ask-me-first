@@ -1,0 +1,19 @@
+# Runtime artifacts (generated at runtime, contain user data)
+slash_log.json
+queries.json
+avatar_state.json
+escalations.json
+
+# Node
+node_modules/
+dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

@@ -1,0 +1,39 @@
+{
+  "rules": [
+    {
+      "id": "explicit_upgrade",
+      "pattern": ["/upgrade", "找本人", "转接", "升级"],
+      "action": "escalate",
+      "reason": "用户请求升级",
+      "priority": 100
+    },
+    {
+      "id": "sensitive_topics",
+      "pattern": ["预算", "工资", "薪资", "人事", "法律", "承诺"],
+      "action": "escalate",
+      "reason": "涉及敏感话题",
+      "priority": 90
+    },
+    {
+      "id": "time_commitment",
+      "pattern": ["什么时候完成", "几点", "deadline", "截止", "交付日期", "能不能赶上"],
+      "action": "escalate",
+      "reason": "涉及时间承诺，需本人确认",
+      "priority": 85
+    },
+    {
+      "id": "low_confidence_state",
+      "condition": "state.confidence < 0.6",
+      "action": "partial",
+      "reason": "状态不确定，仅提供背景信息",
+      "priority": 80
+    },
+    {
+      "id": "info_level_mismatch",
+      "condition": "identity.identity === 'guest'",
+      "action": "partial",
+      "reason": "权限不足，仅提供公开信息",
+      "priority": 75
+    }
+  ]
+}

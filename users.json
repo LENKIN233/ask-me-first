@@ -1,0 +1,80 @@
+{
+  "version": "1.1",
+  "updatedAt": "2026-01-01T00:00:00Z",
+  "users": [
+    {
+      "userId": "ou_your_admin_id_here",
+      "identity": "admin",
+      "infoLevel": "owner_only",
+      "slashCommandsAllowed": true,
+      "allowedCommands": ["*"],
+      "relationship": {
+        "team": "core",
+        "project": ["avatar", "openclaw"],
+        "role": "owner",
+        "trustScore": 1.0,
+        "lastInteraction": "2026-01-01T00:00:00Z"
+      },
+      "notes": "Owner, full access",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "userId": "ou_example_member",
+      "identity": "member",
+      "infoLevel": "internal",
+      "slashCommandsAllowed": true,
+      "allowedCommands": ["new", "help", "status", "upgrade"],
+      "relationship": {
+        "team": "backend",
+        "project": ["avatar"],
+        "role": "peer",
+        "trustScore": 0.7,
+        "lastInteraction": "2026-01-01T00:00:00Z"
+      },
+      "notes": "Standard user with limited slash commands",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "userId": "ou_example_guest",
+      "identity": "guest",
+      "infoLevel": "public",
+      "slashCommandsAllowed": false,
+      "relationship": {
+        "project": [],
+        "role": "external",
+        "trustScore": 0.1,
+        "lastInteraction": "2026-01-01T00:00:00Z"
+      },
+      "notes": "Guest user, conversation only",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": "2026-01-01T00:00:00Z"
+    }
+  ],
+  "identities": {
+    "admin": {
+      "description": "Full access, including slash commands",
+      "slashCommands": true,
+      "allowedCommands": ["*"],
+      "escalation": "none",
+      "infoLevel": "owner_only",
+      "priority": 100
+    },
+    "member": {
+      "description": "Standard user, slash commands allowed",
+      "slashCommands": true,
+      "allowedCommands": ["/new", "/status", "/help", "/upgrade"],
+      "escalation": "partial",
+      "infoLevel": "internal",
+      "priority": 50
+    },
+    "guest": {
+      "description": "Limited user, no slash commands",
+      "slashCommands": false,
+      "escalation": "auto",
+      "infoLevel": "public",
+      "priority": 10
+    }
+  }
+}

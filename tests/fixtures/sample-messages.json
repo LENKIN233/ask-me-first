@@ -1,0 +1,29 @@
+{
+  "version": "1.0",
+  "test_messages": [
+    {
+      "description": "Admin asking general status",
+      "text": "现在在干嘛？",
+      "senderId": "ou_admin_test",
+      "expected_level": "answer"
+    },
+    {
+      "description": "Guest asking about availability",
+      "text": "你忙吗？",
+      "senderId": "ou_guest_test",
+      "expected_level": "escalate"
+    },
+    {
+      "description": "Member requesting upgrade",
+      "text": "找本人一下",
+      "senderId": "ou_member_test",
+      "expected_level": "escalate"
+    },
+    {
+      "description": "Member asking about project",
+      "text": "项目进展如何？",
+      "senderId": "ou_member_test",
+      "expected_level": "partial"
+    }
+  ]
+}
