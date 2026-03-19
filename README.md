@@ -35,38 +35,48 @@ AvatarController:
 - Windows (state detection uses Win32 APIs)
 - Feishu/Lark channel configured
 
-### Installation
+### Installation (Plugin)
 
-1. **Clone** this repo into your OpenClaw workspace:
+```bash
+# Install from GitHub
+openclaw plugins install LENKIN233/ask-me-first
+
+# Enable the plugin
+openclaw plugins enable ask-me-first
+
+# Restart OpenClaw Gateway
+```
+
+### Installation (Manual)
+
+1. **Clone** into your OpenClaw extensions directory:
    ```bash
-   cd ~/.openclaw/workspace
-   git clone https://github.com/your-username/ask-me-first.git
+   cd ~/.openclaw/extensions
+   git clone https://github.com/LENKIN233/ask-me-first.git
    ```
 
-2. **Install hooks** — copy hook directories to workspace:
-   ```bash
-   cp -r ask-me-first/hooks/ask-me-first ~/.openclaw/workspace/hooks/
-   cp -r ask-me-first/hooks/avatar-state ~/.openclaw/workspace/hooks/
-   ```
-
-3. **Configure your identity** — edit `users.json`:
+2. **Configure your identity** — edit `users.json`:
    - Replace `ou_your_admin_id_here` with your Feishu userId
    - Adjust member/guest entries as needed
 
-4. **Personalize prompts** — edit `prompts/avatar-system-prompt.txt`:
+3. **Personalize prompts** — edit `prompts/avatar-system-prompt.txt`:
    - Replace `[Name]` with your actual name
 
-5. **Inject gateway patch** (enables slash command guard):
+4. **(Optional) Inject gateway patch** for slash command access control:
    ```bash
    cd ask-me-first/gateway-patch
    ./inject.bat
    ```
+   > Note: The `/status` command is registered via plugin API and does not require the gateway patch. The patch is only needed for blocking unauthorized slash commands at the gateway level.
 
-6. **Restart OpenClaw Gateway**
+5. **Restart OpenClaw Gateway**
 
 ### Verify
 
 ```bash
+# Check plugin is loaded
+openclaw plugins list
+
 # Run smoke tests
 npx tsx ask-me-first/tests/smoke.test.ts
 ```
@@ -75,6 +85,9 @@ npx tsx ask-me-first/tests/smoke.test.ts
 
 ```
 ask-me-first/
+├── index.ts                      # Plugin entry point (register hooks, commands, services)
+├── openclaw.plugin.json          # Plugin manifest (config schema, UI hints)
+├── package.json                  # npm metadata + OpenClaw extension declaration
 ├── src/                          # Core TypeScript source
 │   ├── controller.ts             # AvatarController orchestrator
 │   ├── state/                    # State detection (detector, cache)
@@ -107,7 +120,6 @@ ask-me-first/
 │   ├── ops.md                    # Operations guide
 │   └── tuning.md                 # Tuning guide
 ├── users.json                    # User identity mapping (edit this!)
-├── index.ts                      # Entry point
 ├── query.ts                      # Query handler
 ├── slash-command-guard.ts        # Slash command authorization
 ├── restricted-mode.ts            # Guest restricted mode
@@ -175,6 +187,8 @@ MIT
 
 ## Note
 
-> ⚠️ Gateway patch (`gateway-patch/inject.bat`) will be overwritten by `npm update openclaw`. Re-run after updates.
+> ⚠️ Gateway patch (`gateway-patch/inject.bat`) is only needed for slash command access control. It will be overwritten by `npm update openclaw` — re-run after updates.
+
+> ⚠️ The `/status` command is registered via plugin API and works without the gateway patch.
 
 > ⚠️ State detection currently supports **Windows only** (uses Win32 `GetForegroundWindow`).

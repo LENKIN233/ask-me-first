@@ -7,8 +7,8 @@
  * - message:received: Update trust score, track session identity for bootstrap injection
  */
 
-import { AvatarController } from '../../ask_me_first/src/controller.js';
-import { IdentityResolver } from '../../ask_me_first/src/identity/resolver.js';
+import { AvatarController } from '../../src/controller.js';
+import { IdentityResolver } from '../../src/identity/resolver.js';
 
 const { join } = require('path');
 const { existsSync, readFileSync } = require('fs');

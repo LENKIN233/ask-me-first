@@ -1,5 +1,5 @@
-import { StateDetector } from '../../ask_me_first/src/state/detector.js';
-import { IdentityResolver } from '../../ask_me_first/src/identity/resolver.js';
+import { StateDetector } from '../../src/state/detector.js';
+import { IdentityResolver } from '../../src/identity/resolver.js';
 
 let _timer: ReturnType<typeof setInterval> | null = null;
 let _lastDecay = 0;

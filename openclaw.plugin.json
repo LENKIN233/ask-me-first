@@ -1,0 +1,82 @@
+{
+  "id": "ask-me-first",
+  "uiHints": {
+    "usersJsonPath": {
+      "label": "Users JSON Path",
+      "help": "Path to users.json relative to workspace. Default: ask_me_first/users.json"
+    },
+    "stateRefreshIntervalMs": {
+      "label": "State Refresh Interval (ms)",
+      "help": "How often to refresh avatar state. Default: 600000 (10 min)",
+      "advanced": true
+    },
+    "trustDecayRate": {
+      "label": "Trust Decay Rate",
+      "help": "Daily trust score decay. Default: 0.01",
+      "advanced": true
+    },
+    "cacheTTL": {
+      "label": "Cache TTL (ms)",
+      "help": "In-memory cache lifetime for users.json. Default: 5000",
+      "advanced": true
+    },
+    "enablePresence": {
+      "label": "Enable Presence Detection",
+      "help": "Detect foreground window for state. Windows only."
+    },
+    "enableCalendar": {
+      "label": "Enable Calendar Integration",
+      "help": "Use calendar events for state detection.",
+      "advanced": true
+    },
+    "calendarLookaheadHours": {
+      "label": "Calendar Lookahead (hours)",
+      "help": "How far ahead to check calendar. Default: 1",
+      "advanced": true
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "default": true
+      },
+      "usersJsonPath": {
+        "type": "string",
+        "default": "ask_me_first/users.json"
+      },
+      "stateRefreshIntervalMs": {
+        "type": "integer",
+        "minimum": 10000,
+        "default": 600000
+      },
+      "trustDecayRate": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "default": 0.01
+      },
+      "cacheTTL": {
+        "type": "integer",
+        "minimum": 1000,
+        "default": 5000
+      },
+      "enablePresence": {
+        "type": "boolean",
+        "default": true
+      },
+      "enableCalendar": {
+        "type": "boolean",
+        "default": false
+      },
+      "calendarLookaheadHours": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 24,
+        "default": 1
+      }
+    }
+  }
+}
