@@ -1,17 +1,19 @@
 /**
- * ask-me-first — OpenClaw Plugin Entry
+ * ask-me-first — OpenClaw Pure Plugin
  *
  * Personal work avatar system: identity-aware, state-sensing three-tier escalation.
+ * Pure plugin — no external hooks/ or gateway-patch/ directories needed.
  *
  * Registers:
  * - /status command (read current state, admin can set explicit state)
- * - message_received hook (trust score tracking)
- * - before_prompt_build hook (identity + restricted-mode prompt injection)
+ * - message_received hook (trust score tracking + session identity mapping)
+ * - agent:bootstrap hook (identity + restricted-mode prompt injection)
+ * - before_prompt_build hook (avatar state context injection)
  * - Background service (state refresh every 10min + trust decay every hour)
  *
  * Note: Slash command access control (blocking unauthorized /commands) still requires
- * the gateway bundle patch (gateway-patch/inject.bat). The plugin API does not yet
- * provide a pre-command interception hook.
+ * the gateway bundle patch. The plugin API does not yet provide a pre-command
+ * interception hook.
  */
 
 import { join } from 'path';
@@ -60,6 +62,8 @@ interface AvatarState {
 
 let _usersCache: UsersData | null = null;
 let _usersCacheTime = 0;
+
+const _sessionIdentityMap = new Map<string, { identity: string; userId: string; restricted: boolean }>();
 
 function loadUsers(workspaceDir: string, cacheTTL: number): UsersData | null {
   const now = Date.now();
@@ -324,13 +328,112 @@ const askMeFirstPlugin = {
     });
 
     // ──────────────────────────────────────────────
-    // 2. message_received — disabled (handled by hooks/ask-me-first/handler.ts)
+    // 2. message_received — track trust + map session identity
     // ──────────────────────────────────────────────
+    api.on('message_received', async (event: any, ctx: any) => {
+      const workspaceDir = getWorkspaceDir();
+      const senderId = event.from;
+      if (!senderId) return;
+
+      const { identity, restricted } = resolveIdentity(workspaceDir, senderId, config.cacheTTL);
+      const sessionKey = ctx.channelId || 'default';
+      _sessionIdentityMap.set(sessionKey, { identity, userId: senderId, restricted });
+
+      if (identity !== 'admin') {
+        try {
+          const { IdentityResolver } = await import('./src/identity/resolver.js');
+          const resolver = new IdentityResolver(workspaceDir);
+          await resolver.updateTrustScore(senderId, 0.01);
+        } catch (e) {
+          api.logger.error('[ask-me-first] trust update failed:', e);
+        }
+      }
+    });
+
+    // ──────────────────────────────────────────────
+    // 2b. agent:bootstrap — inject identity + restricted-mode prompt
+    // ──────────────────────────────────────────────
+    api.registerHook(['agent:bootstrap', 'message:received'], async (event: any) => {
+      const { type, action, context } = event;
+      if (!context) return;
+
+      const workspaceDir = context.workspaceDir || getWorkspaceDir();
+
+      if (type === 'agent' && action === 'bootstrap') {
+        if (!Array.isArray(context.bootstrapFiles)) return;
+
+        // Init AvatarController via global context
+        if (context.global) {
+          try {
+            const { AvatarController } = await import('./src/controller.js');
+            const controller = new AvatarController({
+              workspaceDir,
+              stateConfig: {
+                enablePresence: config.enablePresence,
+                enableCalendar: config.enableCalendar,
+                calendarLookaheadHours: config.calendarLookaheadHours,
+                cacheTTL: config.stateRefreshIntervalMs,
+              },
+            });
+            await controller.init();
+            context.global.set('avatarController', controller);
+          } catch (e) {
+            api.logger.error('[ask-me-first] AvatarController init failed:', e);
+          }
+        }
+
+        // Resolve identity from session map or metadata
+        const sessionKey = event.sessionKey;
+        let identity = 'unknown';
+        let userId = '';
+        let isRestricted = false;
+
+        if (sessionKey && _sessionIdentityMap.has(sessionKey)) {
+          const s = _sessionIdentityMap.get(sessionKey)!;
+          identity = s.identity;
+          userId = s.userId;
+          isRestricted = s.restricted;
+        }
+
+        if (!userId && context.metadata?.senderId) {
+          userId = context.metadata.senderId;
+          const r = resolveIdentity(workspaceDir, userId, config.cacheTTL);
+          identity = r.identity;
+          isRestricted = r.restricted;
+        }
+
+        if (!userId || identity === 'admin') return;
+
+        // Inject identity file into bootstrap
+        context.bootstrapFiles = [
+          ...context.bootstrapFiles,
+          {
+            name: 'user-identity.txt',
+            path: join(workspaceDir, 'ask_me_first/users.json'),
+            content: [
+              '[User Identity — injected by ask-me-first plugin]',
+              `User ID: ${userId}`,
+              `Identity: ${identity}`,
+              `The current user is NOT an administrator. Treat them according to their "${identity}" role.`,
+            ].join('\n'),
+          },
+        ];
+
+        if (isRestricted) {
+          context.bootstrapFiles = [
+            ...context.bootstrapFiles,
+            {
+              name: 'restricted-mode-prompt.txt',
+              path: join(workspaceDir, 'ask_me_first/restricted-mode-prompt.txt'),
+              content: loadRestrictedPrompt(workspaceDir),
+            },
+          ];
+        }
+      }
+    });
 
     // ──────────────────────────────────────────────
     // 3. before_prompt_build — inject avatar state context
-    //    Identity-based prompt injection stays in hooks/ask-me-first/handler.ts
-    //    because before_prompt_build ctx lacks senderId.
     // ──────────────────────────────────────────────
     api.on('before_prompt_build', async (_event: any, ctx: any) => {
       const workspaceDir = getWorkspaceDir();

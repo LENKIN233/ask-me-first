@@ -1,0 +1,10 @@
+tests/
+docs/
+.git/
+.github/
+*.test.ts
+IMPLEMENTATION.md
+INTEGRATION.md
+SETUP.md
+SKILL.md
+.npmignore

@@ -2,6 +2,7 @@
   "name": "ask-me-first",
   "version": "1.0.0",
   "description": "Personal work avatar system — identity-aware, state-sensing three-tier escalation for OpenClaw",
+  "main": "index.ts",
   "type": "module",
   "license": "MIT",
   "author": "LENKIN233",
@@ -9,6 +10,17 @@
     "type": "git",
     "url": "https://github.com/LENKIN233/ask-me-first.git"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "index.ts",
+    "src/",
+    "config/",
+    "prompts/",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
   "openclaw": {
     "extensions": [
       "./index.ts"

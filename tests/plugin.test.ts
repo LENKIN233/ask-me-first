@@ -1,0 +1,248 @@
+import { describe, it, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { join } from 'path';
+import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'fs';
+
+const FIXTURE_DIR = join(import.meta.dirname, 'fixtures', '_plugin_test_tmp');
+
+function ensureFixtureDir() {
+  if (!existsSync(FIXTURE_DIR)) mkdirSync(FIXTURE_DIR, { recursive: true });
+  const amfDir = join(FIXTURE_DIR, 'ask_me_first');
+  if (!existsSync(amfDir)) mkdirSync(amfDir, { recursive: true });
+  return FIXTURE_DIR;
+}
+
+function cleanFixtureDir() {
+  if (existsSync(FIXTURE_DIR)) rmSync(FIXTURE_DIR, { recursive: true, force: true });
+}
+
+async function loadPlugin() {
+  const mod = await import('../index.ts');
+  return mod.default;
+}
+
+describe('parseConfig', () => {
+  it('returns defaults for empty input', async () => {
+    const plugin = await loadPlugin();
+    const config = plugin.configSchema.parse(undefined);
+    assert.equal(config.enabled, true);
+    assert.equal(config.cacheTTL, 5000);
+    assert.equal(config.stateRefreshIntervalMs, 600000);
+    assert.equal(config.trustDecayRate, 0.01);
+    assert.equal(config.enablePresence, true);
+    assert.equal(config.enableCalendar, false);
+    assert.equal(config.calendarLookaheadHours, 1);
+    assert.equal(config.usersJsonPath, 'ask_me_first/users.json');
+  });
+
+  it('returns defaults for non-object input', async () => {
+    const plugin = await loadPlugin();
+    assert.deepStrictEqual(plugin.configSchema.parse(null), plugin.configSchema.parse(undefined));
+    assert.deepStrictEqual(plugin.configSchema.parse('string'), plugin.configSchema.parse(undefined));
+    assert.deepStrictEqual(plugin.configSchema.parse(42), plugin.configSchema.parse(undefined));
+    assert.deepStrictEqual(plugin.configSchema.parse([1, 2]), plugin.configSchema.parse(undefined));
+  });
+
+  it('respects provided values', async () => {
+    const plugin = await loadPlugin();
+    const config = plugin.configSchema.parse({
+      enabled: false,
+      cacheTTL: 10000,
+      stateRefreshIntervalMs: 300000,
+      trustDecayRate: 0.05,
+      enablePresence: false,
+      enableCalendar: true,
+      calendarLookaheadHours: 4,
+      usersJsonPath: 'custom/path.json',
+    });
+    assert.equal(config.enabled, false);
+    assert.equal(config.cacheTTL, 10000);
+    assert.equal(config.stateRefreshIntervalMs, 300000);
+    assert.equal(config.trustDecayRate, 0.05);
+    assert.equal(config.enablePresence, false);
+    assert.equal(config.enableCalendar, true);
+    assert.equal(config.calendarLookaheadHours, 4);
+    assert.equal(config.usersJsonPath, 'custom/path.json');
+  });
+
+  it('ignores unknown keys', async () => {
+    const plugin = await loadPlugin();
+    const config = plugin.configSchema.parse({ unknownKey: 'value', enabled: true });
+    assert.equal(config.enabled, true);
+    assert.equal((config as any).unknownKey, undefined);
+  });
+});
+
+describe('plugin definition', () => {
+  it('exports valid plugin shape', async () => {
+    const plugin = await loadPlugin();
+    assert.equal(plugin.id, 'ask-me-first');
+    assert.equal(plugin.name, 'Ask Me First');
+    assert.equal(typeof plugin.description, 'string');
+    assert.equal(typeof plugin.register, 'function');
+    assert.ok(plugin.configSchema);
+    assert.equal(typeof plugin.configSchema.parse, 'function');
+  });
+});
+
+describe('register', () => {
+  it('skips registration when disabled', async () => {
+    const plugin = await loadPlugin();
+    const calls: string[] = [];
+    const mockApi = {
+      pluginConfig: { enabled: false },
+      logger: { info: (...args: any[]) => calls.push(args.join(' ')), error: () => {} },
+      config: { workspaceDir: FIXTURE_DIR },
+      registerCommand: () => { calls.push('registerCommand'); },
+      on: () => { calls.push('on'); },
+      registerHook: () => { calls.push('registerHook'); },
+      registerService: () => { calls.push('registerService'); },
+    };
+    plugin.register(mockApi);
+    assert.ok(calls.some(c => c.includes('disabled')));
+    assert.ok(!calls.includes('registerCommand'));
+    assert.ok(!calls.includes('on'));
+    assert.ok(!calls.includes('registerService'));
+  });
+
+  it('registers all hooks and commands when enabled', async () => {
+    const plugin = await loadPlugin();
+    const registered: Record<string, number> = { command: 0, on: 0, hook: 0, service: 0 };
+    const mockApi = {
+      pluginConfig: { enabled: true },
+      logger: { info: () => {}, error: () => {} },
+      config: { workspaceDir: FIXTURE_DIR },
+      registerCommand: () => { registered.command++; },
+      on: () => { registered.on++; },
+      registerHook: () => { registered.hook++; },
+      registerService: () => { registered.service++; },
+    };
+    plugin.register(mockApi);
+    assert.equal(registered.command, 1, 'should register 1 command (/status)');
+    assert.equal(registered.on, 2, 'should register 2 event handlers (message_received + before_prompt_build)');
+    assert.equal(registered.hook, 1, 'should register 1 raw hook (agent:bootstrap)');
+    assert.equal(registered.service, 1, 'should register 1 service (state refresh)');
+  });
+});
+
+describe('/status command handler', () => {
+  beforeEach(() => {
+    cleanFixtureDir();
+    ensureFixtureDir();
+  });
+
+  it('returns no-data message when avatar_state.json missing', async () => {
+    const plugin = await loadPlugin();
+    let handler: any;
+    const mockApi = {
+      pluginConfig: { enabled: true },
+      logger: { info: () => {}, error: () => {} },
+      config: { workspaceDir: FIXTURE_DIR },
+      registerCommand: (opts: any) => { handler = opts.handler; },
+      on: () => {},
+      registerHook: () => {},
+      registerService: () => {},
+    };
+    plugin.register(mockApi);
+    assert.ok(handler, 'handler should be registered');
+    const result = handler({ args: '' });
+    assert.ok(result.text.includes('暂无状态数据'));
+  });
+
+  it('reads and formats existing avatar_state.json', async () => {
+    const workDir = ensureFixtureDir();
+    const state = {
+      availability: 'busy',
+      interruptibility: 0.2,
+      current_mode: 'coding',
+      confidence: 0.85,
+      updatedAt: '2025-01-01T12:00:00.000Z',
+      evidence: [{ type: 'presence', description: 'VS Code 前台', timestamp: '2025-01-01T12:00:00Z', source: 'win32' }],
+    };
+    writeFileSync(join(workDir, 'ask_me_first/avatar_state.json'), JSON.stringify(state));
+
+    const plugin = await loadPlugin();
+    let handler: any;
+    const mockApi = {
+      pluginConfig: { enabled: true },
+      logger: { info: () => {}, error: () => {} },
+      config: { workspaceDir: workDir },
+      registerCommand: (opts: any) => { handler = opts.handler; },
+      on: () => {},
+      registerHook: () => {},
+      registerService: () => {},
+    };
+    plugin.register(mockApi);
+    const result = handler({ args: '' });
+    assert.ok(result.text.includes('🔴 忙碌'));
+    assert.ok(result.text.includes('coding'));
+    assert.ok(result.text.includes('20%'));
+    assert.ok(result.text.includes('85%'));
+  });
+
+  it('rejects non-admin /status set', async () => {
+    const workDir = ensureFixtureDir();
+    const users = { users: [{ userId: 'user1', identity: 'guest' }] };
+    writeFileSync(join(workDir, 'ask_me_first/users.json'), JSON.stringify(users));
+
+    const plugin = await loadPlugin();
+    let handler: any;
+    const mockApi = {
+      pluginConfig: { enabled: true, cacheTTL: 0 },
+      logger: { info: () => {}, error: () => {} },
+      config: { workspaceDir: workDir },
+      registerCommand: (opts: any) => { handler = opts.handler; },
+      on: () => {},
+      registerHook: () => {},
+      registerService: () => {},
+    };
+    plugin.register(mockApi);
+    const result = handler({ args: 'set busy', senderId: 'user1' });
+    assert.ok(result.text.includes('⛔'));
+  });
+
+  it('allows admin /status set and writes state file', async () => {
+    const workDir = ensureFixtureDir();
+    const users = { users: [{ userId: 'admin1', identity: 'admin' }] };
+    writeFileSync(join(workDir, 'ask_me_first/users.json'), JSON.stringify(users));
+
+    const plugin = await loadPlugin();
+    let handler: any;
+    const mockApi = {
+      pluginConfig: { enabled: true, cacheTTL: 0 },
+      logger: { info: () => {}, error: () => {} },
+      config: { workspaceDir: workDir },
+      registerCommand: (opts: any) => { handler = opts.handler; },
+      on: () => {},
+      registerHook: () => {},
+      registerService: () => {},
+    };
+    plugin.register(mockApi);
+    const result = handler({ args: 'set focus', senderId: 'admin1' });
+    assert.ok(result.text.includes('✅'));
+    assert.ok(result.text.includes('🟡 专注'));
+
+    const written = JSON.parse(readFileSync(join(workDir, 'ask_me_first/avatar_state.json'), 'utf-8'));
+    assert.equal(written.availability, 'focus');
+    assert.equal(written.explicit, true);
+    assert.equal(written.current_mode, 'manual');
+  });
+
+  it('returns no-sender error for /status set without senderId', async () => {
+    const plugin = await loadPlugin();
+    let handler: any;
+    const mockApi = {
+      pluginConfig: { enabled: true },
+      logger: { info: () => {}, error: () => {} },
+      config: { workspaceDir: FIXTURE_DIR },
+      registerCommand: (opts: any) => { handler = opts.handler; },
+      on: () => {},
+      registerHook: () => {},
+      registerService: () => {},
+    };
+    plugin.register(mockApi);
+    const result = handler({ args: 'set online' });
+    assert.ok(result.text.includes('⛔'));
+    assert.ok(result.text.includes('无法识别'));
+  });
+});

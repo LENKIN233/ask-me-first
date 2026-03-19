@@ -62,14 +62,7 @@ openclaw plugins enable ask-me-first
 3. **Personalize prompts** — edit `prompts/avatar-system-prompt.txt`:
    - Replace `[Name]` with your actual name
 
-4. **(Optional) Inject gateway patch** for slash command access control:
-   ```bash
-   cd ask-me-first/gateway-patch
-   ./inject.bat
-   ```
-   > Note: The `/status` command is registered via plugin API and does not require the gateway patch. The patch is only needed for blocking unauthorized slash commands at the gateway level.
-
-5. **Restart OpenClaw Gateway**
+4. **Restart OpenClaw Gateway**
 
 ### Verify
 
@@ -85,7 +78,7 @@ npx tsx ask-me-first/tests/smoke.test.ts
 
 ```
 ask-me-first/
-├── index.ts                      # Plugin entry point (register hooks, commands, services)
+├── index.ts                      # Plugin entry point (hooks, commands, services — all in one)
 ├── openclaw.plugin.json          # Plugin manifest (config schema, UI hints)
 ├── package.json                  # npm metadata + OpenClaw extension declaration
 ├── src/                          # Core TypeScript source
@@ -99,19 +92,10 @@ ask-me-first/
 │   ├── identities.json           # Identity level definitions
 │   ├── escalationRules.json      # Escalation rule configuration
 │   └── templates.json            # Reply templates
-├── hooks/
-│   ├── ask-me-first/             # Message handler hook
-│   │   ├── HOOK.md
-│   │   └── handler.ts
-│   └── avatar-state/             # State refresh hook (10min interval)
-│       ├── HOOK.md
-│       └── updater.ts
-├── gateway-patch/
-│   ├── ask-me-first-patch.js     # Gateway bundle patch
-│   └── inject.bat                # Auto-injection script
 ├── prompts/
 │   └── avatar-system-prompt.txt  # System prompt template
 ├── tests/
+│   ├── plugin.test.ts            # Plugin unit tests
 │   ├── smoke.test.ts             # Smoke tests
 │   └── fixtures/
 ├── docs/
@@ -150,7 +134,7 @@ The main configuration file. Define who can access what:
 
 ### State Detection
 
-The avatar-state hook detects your current activity every 10 minutes:
+The background service detects your current activity every 10 minutes:
 - **Foreground window** analysis (VS Code → coding, Teams → meeting, etc.)
 - **Calendar** integration for scheduled events
 - **Explicit override** via `/status set <state>` command
@@ -164,7 +148,9 @@ Configure in `config/escalationRules.json`:
 
 ## Key Features
 
-- **Gateway-level slash command guard** — unauthorized commands blocked before reaching the agent
+- **Pure plugin architecture** — all functionality in a single `index.ts`, no external hooks/ directory needed
+- **Identity-aware message handling** — `message_received` hook tracks trust and maps session identity
+- **Agent bootstrap injection** — identity + restricted-mode prompt injected via `agent:bootstrap` hook
 - **5-second in-memory cache** — avoids disk reads on every message
 - **Trust score decay** — inactive users lose access gradually
 - **Explicit state override** — admin can force state via `/status set`
@@ -186,9 +172,5 @@ Configure in `config/escalationRules.json`:
 MIT
 
 ## Note
-
-> ⚠️ Gateway patch (`gateway-patch/inject.bat`) is only needed for slash command access control. It will be overwritten by `npm update openclaw` — re-run after updates.
-
-> ⚠️ The `/status` command is registered via plugin API and works without the gateway patch.
 
 > ⚠️ State detection currently supports **Windows only** (uses Win32 `GetForegroundWindow`).
