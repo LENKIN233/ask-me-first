@@ -6,6 +6,10 @@
   "type": "module",
   "license": "MIT",
   "author": "LENKIN233",
+  "homepage": "https://github.com/LENKIN233/ask-me-first#readme",
+  "bugs": {
+    "url": "https://github.com/LENKIN233/ask-me-first/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/LENKIN233/ask-me-first.git"
@@ -20,6 +24,7 @@
     "prompts/",
     "openclaw.plugin.json",
     "README.md",
+    "SKILL.md",
     "users.json",
     "restricted-mode-prompt.txt"
   ],
@@ -34,6 +39,9 @@
     "avatar",
     "access-control",
     "identity",
-    "escalation"
+    "escalation",
+    "digital-proxy",
+    "feishu",
+    "lark"
   ]
 }

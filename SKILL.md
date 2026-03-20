@@ -9,16 +9,17 @@ description: "Personal work avatar system for OpenClaw — identity-aware, state
 
 ## 概述
 
-Ask My Avatar First 是一套运行在 OpenClaw 上的个人工作数字分身系统。当同事想找你时，他们首先接触你的数字分身。分身实时感知你的工作状态，根据来访者身份和问题性质进行三级智能决策：**直接回答、部分回答、或升级给本人**。
+Ask Me First 是一套运行在 OpenClaw 上的个人工作数字分身系统。当同事想找你时，他们首先接触你的数字分身。分身实时感知你的工作状态，根据来访者身份和问题性质进行三级智能决策：**直接回答、部分回答、或升级给本人**。
 
 ## 核心能力
 
 - **身份解析** — 自动识别来访者身份（admin/member/guest），根据身份决定信息深度
 - **状态感知** — 实时检测本人工作状态（coding/meeting/writing/idle），通过前台窗口检测 + 日历集成
 - **三级决策** — 基于规则引擎自动决定：直接回答、部分回答（隐藏敏感信息）、升级给本人
-- **斜杠命令守卫** — 未授权用户无法执行管理命令，Gateway 层同步拦截
 - **信任评分** — 基于交互频率动态调整用户信任度，影响信息可见范围
 - **升级通知** — 当决策为"升级"时，自动记录到升级队列供本人查看
+
+> ⚠️ 斜杠命令访问控制（在 gateway 层拦截未授权 /commands）目前无法通过插件 API 实现，需要 OpenClaw 提供 pre-command 拦截钩子。
 
 ## 架构
 
@@ -36,30 +37,36 @@ AvatarController:
 
 ```
 ask-me-first/
-├── src/                    # 核心 TypeScript 源码
-│   ├── controller.ts       # AvatarController 主控
-│   ├── state/              # 状态检测
-│   ├── identity/           # 身份与权限
-│   ├── escalation/         # 升级决策引擎
-│   ├── generation/         # 回复生成
-│   └── tools/              # 工具集成（日历、存在感知等）
-├── config/                 # 配置文件
-├── hooks/                  # OpenClaw hooks
-│   ├── ask-me-first/       # 消息处理 hook
-│   └── avatar-state/       # 状态刷新 hook
-├── gateway-patch/          # Gateway bundle 补丁
-├── prompts/                # 系统提示词
-├── tests/                  # 测试
-└── docs/                   # 详细文档
+├── index.ts                    # 插件入口（hooks, commands, services 一体化）
+├── openclaw.plugin.json        # 插件 manifest（配置 schema, UI hints）
+├── package.json                # npm 元数据 + OpenClaw 扩展声明
+├── users.json                  # 用户身份映射模板
+├── restricted-mode-prompt.txt  # Guest 限制模式提示词模板
+├── src/                        # 核心 TypeScript 源码
+│   ├── controller.ts           # AvatarController 主控
+│   ├── state/                  # 状态检测
+│   ├── identity/               # 身份与权限
+│   ├── escalation/             # 升级决策引擎
+│   ├── generation/             # 回复生成
+│   └── tools/                  # 工具集成（日历、存在感知等）
+├── config/                     # 配置文件模板
+├── prompts/                    # 系统提示词
+├── tests/                      # 测试
+└── docs/                       # 详细文档
 ```
 
 ## 安装
 
-1. 克隆此仓库到 OpenClaw workspace
-2. 复制 `hooks/` 下的两个目录到 `~/.openclaw/workspace/hooks/`
-3. 编辑 `users.json`，将 `ou_your_admin_id_here` 替换为你的飞书 userId
-4. 运行 `gateway-patch/inject.bat` 注入斜杠命令守卫
-5. 重启 OpenClaw Gateway
+```bash
+# 通过 npm 安装（推荐）
+npm install ask-me-first
+
+# 或通过 OpenClaw CLI
+openclaw plugins install ask-me-first
+
+# 或从 GitHub 安装
+openclaw plugins install LENKIN233/ask-me-first
+```
 
 ## 配置
 

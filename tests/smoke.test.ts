@@ -4,7 +4,7 @@ import { EscalateLevel } from '../src/escalation/types.js';
 import * as path from 'path';
 
 const config = {
-  workspaceDir: path.resolve(process.cwd(), '..'),
+  workspaceDir: path.resolve(import.meta.dirname, '..'),
   stateConfig: {
     enablePresence: false,
     enableCalendar: false,

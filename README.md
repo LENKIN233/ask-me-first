@@ -35,16 +35,21 @@ AvatarController:
 - Windows (state detection uses Win32 APIs)
 - Feishu/Lark channel configured
 
-### Installation (Plugin)
+### Installation (npm — recommended)
 
 ```bash
-# Install from GitHub
+# Install via npm
+npm install ask-me-first
+
+# Or via OpenClaw CLI (uses npm under the hood)
+openclaw plugins install ask-me-first
+```
+
+### Installation (GitHub)
+
+```bash
+# Install directly from GitHub
 openclaw plugins install LENKIN233/ask-me-first
-
-# Enable the plugin
-openclaw plugins enable ask-me-first
-
-# Restart OpenClaw Gateway
 ```
 
 ### Installation (Manual)
@@ -63,6 +68,13 @@ openclaw plugins enable ask-me-first
    - Replace `[Name]` with your actual name
 
 4. **Restart OpenClaw Gateway**
+
+### First Startup
+
+On first load, the plugin automatically:
+- Creates `~/.openclaw/workspace/ask_me_first/` and `ask_me_first/config/` directories
+- Copies template files (`users.json`, `restricted-mode-prompt.txt`, escalation rules, etc.) to the workspace if they don't already exist
+- Never overwrites your existing configuration
 
 ### Verify
 
@@ -111,14 +123,14 @@ ask-me-first/
 
 ### Directory Model
 
-**Repo source** (this repository) contains templates and code.
+**Repo source** (this repository / npm package) contains templates and code.
 **Runtime workspace** (`~/.openclaw/workspace/ask_me_first/`) is where the plugin reads/writes at runtime:
 - `users.json` — active user identity data
 - `avatar_state.json` — auto-generated state snapshots
 - `config/escalationRules.json` — active escalation rules
 - `restricted-mode-prompt.txt` — active restricted-mode prompt
 
-On first install, copy `users.json`, `config/`, and `restricted-mode-prompt.txt` from this repo into your workspace's `ask_me_first/` directory.
+On first startup, the plugin automatically copies template files from the package into your workspace's `ask_me_first/` directory (only if they don't already exist).
 
 ## Configuration
 
@@ -155,7 +167,7 @@ Configure in `config/escalationRules.json`:
 
 ## Key Features
 
-- **Pure plugin architecture** — all functionality in a single `index.ts`, no external hooks/ directory needed
+- **Native plugin architecture** — all functionality in a single `index.ts`, no external hooks/ directory needed
 - **Identity-aware message handling** — `message_received` hook tracks trust and maps session identity
 - **Agent bootstrap injection** — identity + restricted-mode prompt injected via `agent:bootstrap` hook
 - **Configurable paths** — `usersJsonPath` and `trustDecayRate` are runtime-configurable via plugin settings

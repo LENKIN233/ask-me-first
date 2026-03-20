@@ -1,23 +1,24 @@
 /**
- * ask-me-first — OpenClaw Pure Plugin
+ * ask-me-first — OpenClaw Native Plugin
  *
  * Personal work avatar system: identity-aware, state-sensing three-tier escalation.
- * Pure plugin — no external hooks/ or gateway-patch/ directories needed.
+ * Native plugin architecture — all functionality via OpenClaw plugin API.
  *
  * Registers:
  * - /status command (read current state, admin can set explicit state)
- * - message_received hook (trust score tracking + session identity mapping)
+ * - message_received event (trust score tracking + session identity mapping)
  * - agent:bootstrap hook (identity + restricted-mode prompt injection)
- * - before_prompt_build hook (avatar state context injection)
+ * - before_prompt_build event (avatar state context injection)
  * - Background service (state refresh every 10min + trust decay every hour)
  *
- * Limitation: Slash command access control (blocking unauthorized /commands) is not
- * possible via the plugin API alone — it would require a gateway-level interception
- * hook that does not yet exist in OpenClaw.
+ * Known limitations:
+ * - Slash command access control (blocking unauthorized /commands) requires gateway-level
+ *   interception that OpenClaw's plugin API does not yet provide.
+ * - State detection (foreground window) is Windows-only.
  */
 
-import { join } from 'path';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'fs';
 
 // ── Types ──
 
@@ -56,6 +57,73 @@ interface AvatarState {
   explicitSetAt?: string;
   evidence?: Array<{ type: string; description: string; timestamp: string; source: string }>;
   updatedAt?: string;
+}
+
+// ── Runtime directory initialization ──
+
+/**
+ * Resolve the plugin's own source directory.
+ * This is used to find template files bundled with the plugin.
+ */
+function getPluginDir(): string {
+  // import.meta.dirname is available in ESM with tsx/node 21+
+  // Fallback to __dirname-like resolution
+  try {
+    return dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1'));
+  } catch {
+    return process.cwd();
+  }
+}
+
+/**
+ * Ensure runtime directories and default files exist in the workspace.
+ * Called once during plugin registration — makes first startup safe.
+ *
+ * Template files from the plugin source are copied to the workspace
+ * only if they don't already exist (never overwrites user config).
+ */
+function ensureRuntimeDirs(workspaceDir: string, config: AskMeFirstConfig, logger: { info: (...args: any[]) => void; error: (...args: any[]) => void }): void {
+  const pluginDir = getPluginDir();
+  const runtimeDir = join(workspaceDir, 'ask_me_first');
+  const configDir = join(runtimeDir, 'config');
+
+  // Create directories
+  for (const dir of [runtimeDir, configDir]) {
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+      logger.info(`[ask-me-first] Created directory: ${dir}`);
+    }
+  }
+
+  // Copy template files (only if target doesn't exist)
+  const templates: Array<{ src: string; dest: string }> = [
+    { src: join(pluginDir, 'users.json'), dest: join(workspaceDir, config.usersJsonPath) },
+    { src: join(pluginDir, 'restricted-mode-prompt.txt'), dest: join(runtimeDir, 'restricted-mode-prompt.txt') },
+    { src: join(pluginDir, 'config', 'escalationRules.json'), dest: join(configDir, 'escalationRules.json') },
+    { src: join(pluginDir, 'config', 'identities.json'), dest: join(configDir, 'identities.json') },
+    { src: join(pluginDir, 'config', 'templates.json'), dest: join(configDir, 'templates.json') },
+  ];
+
+  for (const { src, dest } of templates) {
+    if (!existsSync(dest) && existsSync(src)) {
+      const destDir = dirname(dest);
+      if (!existsSync(destDir)) mkdirSync(destDir, { recursive: true });
+      try {
+        copyFileSync(src, dest);
+        logger.info(`[ask-me-first] Copied template: ${src} → ${dest}`);
+      } catch (e) {
+        logger.error(`[ask-me-first] Failed to copy template ${src}:`, e);
+      }
+    }
+  }
+}
+
+/**
+ * Ensure the directory for a file path exists before writing.
+ */
+function ensureDirForFile(filePath: string): void {
+  const dir = dirname(filePath);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
 // ── Users.json cache ──
@@ -130,7 +198,7 @@ function loadRestrictedPrompt(workspaceDir: string): string {
 
 async function refreshAvatarState(workspaceDir: string, config: AskMeFirstConfig, logger: { info: (...args: any[]) => void; error: (...args: any[]) => void }): Promise<void> {
   try {
-    const { StateDetector } = await import('./src/state/detector.js');
+    const { StateDetector } = await import('./src/state/detector.ts');
     const detector = new StateDetector({
       enablePresence: config.enablePresence,
       enableCalendar: config.enableCalendar,
@@ -156,6 +224,7 @@ async function refreshAvatarState(workspaceDir: string, config: AskMeFirstConfig
       } catch { /* overwrite corrupted */ }
     }
 
+    ensureDirForFile(outPath);
     writeFileSync(outPath, JSON.stringify({
       ...state,
       updatedAt: new Date().toISOString(),
@@ -168,7 +237,7 @@ async function refreshAvatarState(workspaceDir: string, config: AskMeFirstConfig
 
 async function decayTrust(workspaceDir: string, config: AskMeFirstConfig, logger: { info: (...args: any[]) => void; error: (...args: any[]) => void }): Promise<void> {
   try {
-    const { IdentityResolver } = await import('./src/identity/resolver.js');
+    const { IdentityResolver } = await import('./src/identity/resolver.ts');
     const usersPath = join(workspaceDir, config.usersJsonPath);
     const resolver = new IdentityResolver(workspaceDir, usersPath);
     await resolver.decayTrustScores(config.trustDecayRate);
@@ -253,6 +322,15 @@ const askMeFirstPlugin = {
     const getWorkspaceDir = () => api.config?.workspaceDir || process.env.OPENCLAW_WORKSPACE || process.cwd();
 
     // ──────────────────────────────────────────────
+    // 0. First-startup initialization
+    // ──────────────────────────────────────────────
+    try {
+      ensureRuntimeDirs(getWorkspaceDir(), config, api.logger);
+    } catch (e) {
+      api.logger.error('[ask-me-first] Runtime dir init failed:', e);
+    }
+
+    // ──────────────────────────────────────────────
     // 1. /status command — read avatar state, admin can set explicit state
     // ──────────────────────────────────────────────
     api.registerCommand({
@@ -293,6 +371,7 @@ const askMeFirstPlugin = {
               }],
               updatedAt: new Date().toISOString(),
             };
+            ensureDirForFile(statePath);
             writeFileSync(statePath, JSON.stringify(explicit, null, 2));
             const avMap: Record<string, string> = { online: '🟢 在线', busy: '🔴 忙碌', focus: '🟡 专注', offline: '⚫ 离线' };
             return {
@@ -343,7 +422,7 @@ const askMeFirstPlugin = {
 
       if (identity !== 'admin') {
         try {
-          const { IdentityResolver } = await import('./src/identity/resolver.js');
+          const { IdentityResolver } = await import('./src/identity/resolver.ts');
           const usersPath = join(workspaceDir, config.usersJsonPath);
           const resolver = new IdentityResolver(workspaceDir, usersPath);
           await resolver.updateTrustScore(senderId, 0.01);
@@ -356,7 +435,7 @@ const askMeFirstPlugin = {
     // ──────────────────────────────────────────────
     // 2b. agent:bootstrap — inject identity + restricted-mode prompt
     // ──────────────────────────────────────────────
-    api.registerHook(['agent:bootstrap', 'message:received'], async (event: any) => {
+    api.registerHook(['agent:bootstrap'], async (event: any) => {
       const { type, action, context } = event;
       if (!context) return;
 
@@ -368,9 +447,10 @@ const askMeFirstPlugin = {
         // Init AvatarController via global context
         if (context.global) {
           try {
-            const { AvatarController } = await import('./src/controller.js');
+            const { AvatarController } = await import('./src/controller.ts');
             const controller = new AvatarController({
               workspaceDir,
+              usersJsonPath: config.usersJsonPath,
               stateConfig: {
                 enablePresence: config.enablePresence,
                 enableCalendar: config.enableCalendar,
@@ -438,7 +518,7 @@ const askMeFirstPlugin = {
     // ──────────────────────────────────────────────
     // 3. before_prompt_build — inject avatar state context
     // ──────────────────────────────────────────────
-    api.on('before_prompt_build', async (_event: any, ctx: any) => {
+    api.on('before_prompt_build', async (_event: any, _ctx: any) => {
       const workspaceDir = getWorkspaceDir();
       try {
         const statePath = join(workspaceDir, 'ask_me_first/avatar_state.json');
@@ -505,4 +585,6 @@ const askMeFirstPlugin = {
   },
 };
 
+// Export ensureRuntimeDirs and ensureDirForFile for testing
+export { ensureRuntimeDirs, ensureDirForFile };
 export default askMeFirstPlugin;

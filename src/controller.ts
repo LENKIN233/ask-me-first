@@ -15,6 +15,7 @@ import path from 'path';
 
 export interface AvatarControllerConfig {
   workspaceDir: string;
+  usersJsonPath?: string;
   stateConfig: {
     enablePresence: boolean;
     enableCalendar: boolean;
@@ -45,7 +46,10 @@ export class AvatarController {
 
   constructor(private config: AvatarControllerConfig) {
     this.stateDetector = new StateDetector({ ...config.stateConfig, workspaceDir: config.workspaceDir });
-    this.identityResolver = new IdentityResolver(config.workspaceDir);
+    const usersPath = config.usersJsonPath
+      ? path.join(config.workspaceDir, config.usersJsonPath)
+      : undefined;
+    this.identityResolver = new IdentityResolver(config.workspaceDir, usersPath);
     this.escalationRouter = new EscalationRouter();
     this.replyFormatter = new ReplyFormatter();
     this.relationshipAnalyzer = new RelationshipAnalyzer();
