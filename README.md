@@ -1,32 +1,33 @@
 [English](README.md) | [中文](README.zh-CN.md)
 
-# Ask Me First — Personal Work Avatar System
+# Ask Me First — Digital Work Avatar System
 
-> Let them talk to my avatar first — instead of interrupting me directly.
+> Your digital proxy and first contact surface — let them talk to my avatar first.
 
-A production-ready personal work avatar system for [OpenClaw](https://github.com/openclaw). It creates a digital proxy that handles colleague inquiries with identity-aware, state-sensing three-tier escalation.
+A production-ready digital work avatar system for [OpenClaw](https://github.com/openclaw). It creates a digital proxy that handles colleague inquiries with identity-aware, state-sensing three-tier escalation. Every interaction is processed through a deterministic decision chain to ensure appropriate context sharing and interruption management.
 
 ## What It Does
 
 When someone messages you, they talk to your avatar first. The avatar:
 
-1. **Identifies** who's asking (admin / member / guest)
-2. **Detects** your current state (coding / in meeting / idle)
-3. **Decides** how to respond:
-   - ✅ **Answer directly** — routine questions, public info
-   - ⚠️ **Partial answer** — sensitive topics, filtered by identity
-   - 🔺 **Escalate to you** — urgent/complex matters only
+1. **Identifies** the sender from `users.json` or session history
+2. **Detects** your current state (coding, in meeting, or deep work)
+3. **Decides** the optimal response via the **Avatar Decision Chain**:
+   - ✅ **Answer directly** — routine questions using rich persona context
+   - ⚠️ **Partial answer** — provides filtered info based on identity and trust
+   - 🔺 **Escalate to you** — logs urgent matters to `escalations.json` for manual review
 
-## Architecture
+## Architecture (v1.1.0)
 
 ```
-Message → OpenClaw Gateway → AvatarController → Decision Engine → Reply
+Message → OpenClaw (before_prompt_build) → Avatar Decision Chain → Final Prompt → Reply
 
-AvatarController:
-├── StateDetector     — Local presence (foreground window) + calendar
-├── IdentityResolver  — User identity + trust score system
-├── EscalationRouter  — Rule-based escalation engine
-└── ReplyFormatter    — Template-based reply generation
+Avatar Decision Chain (v1.1.0):
+├── 1. Load Persona        — Injects customizable prompts/persona-system-prompt.md
+├── 2. Resolve Identity    — Maps sender to Admin/Member/Guest levels
+├── 3. Sense State         — Reads current availability and interruptibility
+├── 4. Escalation Routing  — Determines if current query requires human intervention
+└── 5. Context Injection   — Mixes project context (git/TODO) with user memory (MEMORY.md)
 ```
 
 ## Quick Start
@@ -85,10 +86,10 @@ The bot should reply with a confirmation like `✅ State overridden to: coding`.
 
 ```
 ask-me-first/
-├── index.ts                      # Plugin entry point (hooks, commands, services — all in one)
-├── openclaw.plugin.json          # Plugin manifest (config schema, UI hints)
-├── package.json                  # npm metadata + OpenClaw extension declaration
-├── users.json                    # User identity mapping template (edit & copy to workspace)
+├── index.ts                      # Plugin entry point (hooks, commands, services)
+├── openclaw.plugin.json          # Plugin manifest
+├── package.json                  # npm metadata
+├── users.json                    # User identity mapping template
 ├── restricted-mode-prompt.txt    # Guest restricted-mode prompt template
 ├── src/                          # Core TypeScript source
 │   ├── controller.ts             # AvatarController orchestrator
@@ -102,7 +103,8 @@ ask-me-first/
 │   ├── escalationRules.json      # Escalation rule configuration
 │   └── templates.json            # Reply templates
 ├── prompts/
-│   └── avatar-system-prompt.txt  # System prompt template
+│   ├── persona-system-prompt.md  # Main customizable persona template (v1.1.0)
+│   └── avatar-system-prompt.txt  # Core system prompt components
 ├── tests/
 │   ├── plugin.test.ts            # Plugin unit tests
 │   ├── smoke.test.ts             # Smoke tests
@@ -160,28 +162,28 @@ Configure in `config/escalationRules.json`:
 - Identity-based routing
 - State-aware decisions (e.g., always escalate during deep work)
 
-## Key Features
+## Key Features (v1.1.0)
 
-- **Native plugin architecture** — all functionality in a single `index.ts`, no external hooks/ directory needed
-- **Identity-aware message handling** — `message_received` hook tracks trust and maps session identity
-- **Agent bootstrap injection** — identity + restricted-mode prompt injected via `agent:bootstrap` hook
-- **Configurable paths** — `usersJsonPath` and `trustDecayRate` are runtime-configurable via plugin settings
-- **5-second in-memory cache** — avoids disk reads on every message
-- **Trust score decay** — inactive users lose access gradually (configurable rate)
-- **Explicit state override** — admin can force state via `/avatar set`
-- **Template-based replies** — consistent, configurable response format
-- **Escalation notifications** — queued for owner review
+- **Avatar Decision Chain** — Every prompt is built dynamically via the `before_prompt_build` hook, ensuring identity-aware context injection.
+- **Customizable Persona** — Define your avatar's personality and rules in `prompts/persona-system-prompt.md`.
+- **Identity-aware context sharing** — Admins get full project context (git logs, open files, TODOs) + personal memory from `MEMORY.md`.
+- **Escalation Logging** — All hand-offs and critical requests are logged to `escalations.json` for manual follow-up.
+- **Native plugin architecture** — Built for the standard OpenClaw plugin lifecycle, no external hacks required.
+- **Trust score system** — Tracks interaction quality; high trust enables deeper context access for regular users.
+- **State sensing** — Automatic detection of coding/meeting/busy states via Windows API and calendar integration.
+- **Explicit state override** — Override your status at any time using the `/avatar` command.
 
 > ⚠️ Slash command access control (blocking unauthorized `/commands` at the gateway layer) is **not possible** via the plugin API alone. This would require a pre-command interception hook that OpenClaw does not yet provide.
 
 ## Limitations & API Stability
 
-| Feature | Depends On | Stability |
+| Feature | Hook / API | Stability |
 |---------|-----------|-----------|
 | `/avatar` command | `registerCommand` | ✅ Stable — core plugin API |
 | First-startup init | `register()` lifecycle | ✅ Stable — runs on plugin load |
-| Identity injection | `agent:bootstrap` hook | ✅ Stable — documented hook |
-| Trust tracking | `message_received` event | ⚠️ **Experimental** — may not fire in all OpenClaw versions |
+| Identity injection | `before_prompt_build` | ✅ Stable — deterministic prompt building |
+| Avatar Decision Chain | `before_prompt_build` | ✅ Stable — v1.1.0 core logic |
+| Trust tracking | `message_received` event | ⚠️ **Experimental** — depends on gateway hook availability |
 | Auto-register admin | `message_received` event | ⚠️ **Experimental** — same dependency as above |
 | State detection service | `registerService` | ✅ Stable — core plugin API |
 

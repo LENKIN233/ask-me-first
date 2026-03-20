@@ -19,6 +19,19 @@
 import { join, dirname } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'fs';
 
+// ── src/ module imports (avatar decision chain) ──
+import { EscalationRouter } from './src/escalation/router.ts';
+import { EscalateLevel } from './src/escalation/types.ts';
+import type { MessageContext } from './src/escalation/types.ts';
+import { Permissions, InfoLevel } from './src/identity/permissions.ts';
+import { RelationshipAnalyzer } from './src/identity/relationship.ts';
+import { defaultInfoLevel, defaultRelationship } from './src/identity/types.ts';
+import type { UserEntry as SrcUserEntry } from './src/identity/types.ts';
+import { stateDescription, defaultState } from './src/state/state.ts';
+import type { AppState as SrcAppState } from './src/state/state.ts';
+import { ContextTool } from './src/tools/context.ts';
+import { MemoryTool } from './src/tools/memory.ts';
+
 // ── Types ──
 
 interface AskMeFirstConfig {
@@ -85,9 +98,9 @@ function ensureRuntimeDirs(workspaceDir: string, config: AskMeFirstConfig, logge
   const pluginDir = getPluginDir();
   const runtimeDir = join(workspaceDir, 'ask_me_first');
   const configDir = join(runtimeDir, 'config');
+  const promptsDir = join(runtimeDir, 'prompts');
 
-  // Create directories
-  for (const dir of [runtimeDir, configDir]) {
+  for (const dir of [runtimeDir, configDir, promptsDir]) {
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
       logger.info(`[ask-me-first] Created directory: ${dir}`);
@@ -101,6 +114,7 @@ function ensureRuntimeDirs(workspaceDir: string, config: AskMeFirstConfig, logge
     { src: join(pluginDir, 'config', 'escalationRules.json'), dest: join(configDir, 'escalationRules.json') },
     { src: join(pluginDir, 'config', 'identities.json'), dest: join(configDir, 'identities.json') },
     { src: join(pluginDir, 'config', 'templates.json'), dest: join(configDir, 'templates.json') },
+    { src: join(pluginDir, 'prompts', 'persona-system-prompt.md'), dest: join(promptsDir, 'persona-system-prompt.md') },
   ];
 
   for (const { src, dest } of templates) {
@@ -124,6 +138,17 @@ function ensureDirForFile(filePath: string): void {
   const dir = dirname(filePath);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
+
+// ── Avatar decision chain singletons ──
+
+let _escalationRouter: EscalationRouter | null = null;
+let _relationshipAnalyzer: RelationshipAnalyzer | null = null;
+let _contextTool: ContextTool | null = null;
+let _memoryTool: MemoryTool | null = null;
+
+let _personaPromptCache = '';
+let _personaPromptCacheTime = 0;
+const PERSONA_PROMPT_CACHE_TTL = 30_000;
 
 // ── Users.json cache ──
 
@@ -246,6 +271,33 @@ function loadRestrictedPrompt(workspaceDir: string): string {
 
   _restrictedPromptCache = content;
   _restrictedPromptCacheTime = now;
+  return content;
+}
+
+function loadPersonaPrompt(workspaceDir: string): string {
+  const now = Date.now();
+  if (_personaPromptCache && (now - _personaPromptCacheTime) < PERSONA_PROMPT_CACHE_TTL) {
+    return _personaPromptCache;
+  }
+
+  const personaPath = join(workspaceDir, 'ask_me_first/prompts/persona-system-prompt.md');
+  let content = '';
+  if (existsSync(personaPath)) {
+    try {
+      content = readFileSync(personaPath, 'utf-8');
+    } catch { /* use fallback */ }
+  }
+
+  if (!content) {
+    content = [
+      '你是用户的工作分身（数字工作接口）。',
+      '你的职责是先替用户承接工作沟通，根据来访者身份和问题性质决定是直接回答、部分回答还是升级给本人。',
+      '保持专业、简洁。不承诺、不越权、不伪装成本人。',
+    ].join('\n');
+  }
+
+  _personaPromptCache = content;
+  _personaPromptCacheTime = now;
   return content;
 }
 
@@ -386,6 +438,21 @@ const askMeFirstPlugin = {
       ensureRuntimeDirs(getWorkspaceDir(), config, api.logger);
     } catch (e) {
       api.logger.error('[ask-me-first] Runtime dir init failed:', e);
+    }
+
+    _escalationRouter = new EscalationRouter();
+    _relationshipAnalyzer = new RelationshipAnalyzer();
+    _contextTool = new ContextTool();
+    _memoryTool = new MemoryTool();
+
+    try {
+      const rulesPath = join(getWorkspaceDir(), 'ask_me_first/config/escalationRules.json');
+      if (existsSync(rulesPath)) {
+        _escalationRouter.loadRules(rulesPath);
+        api.logger.info('[ask-me-first] Escalation rules loaded');
+      }
+    } catch (e) {
+      api.logger.error('[ask-me-first] Failed to load escalation rules:', e);
     }
 
     // ──────────────────────────────────────────────
@@ -660,32 +727,15 @@ const askMeFirstPlugin = {
         };
       }
 
-      // ── 3a. Avatar state context ──
+      // ── 3a. Full avatar decision chain ──
       try {
-        const statePath = join(workspaceDir, 'ask_me_first/avatar_state.json');
-        if (existsSync(statePath)) {
-          const st: AvatarState = JSON.parse(readFileSync(statePath, 'utf-8'));
-          const avMap: Record<string, string> = { online: '🟢 Online', busy: '🔴 Busy', focus: '🟡 Focus', offline: '⚫ Offline' };
-          contextParts.push([
-            '[Avatar State — injected by ask-me-first plugin]',
-            `Current availability: ${avMap[st.availability] || st.availability}`,
-            `Mode: ${st.current_mode}`,
-            `Interruptibility: ${Math.round((st.interruptibility || 0) * 100)}%`,
-            `Last updated: ${st.updatedAt || 'unknown'}`,
-          ].join('\n'));
-        }
-      } catch (e) {
-        api.logger.error('[ask-me-first] state context injection failed:', e);
-      }
+        const personaRaw = loadPersonaPrompt(workspaceDir);
 
-      // ── 3b. Identity + restricted-mode prompt injection ──
-      try {
         const sessionKey = ctx?.channelId || 'default';
         let identity = 'unknown';
         let userId = '';
         let isRestricted = false;
 
-        // Try session map first (populated by message_received hook)
         if (_sessionIdentityMap.has(sessionKey)) {
           const s = _sessionIdentityMap.get(sessionKey)!;
           identity = s.identity;
@@ -693,7 +743,6 @@ const askMeFirstPlugin = {
           isRestricted = s.restricted;
         }
 
-        // Fallback: resolve from event metadata if available
         if (!userId && (event?.from || ctx?.senderId)) {
           userId = event?.from || ctx?.senderId;
           const r = resolveIdentity(workspaceDir, userId, config.cacheTTL, config.usersJsonPath);
@@ -701,21 +750,176 @@ const askMeFirstPlugin = {
           isRestricted = r.restricted;
         }
 
-        // Only inject for non-admin identified users
-        if (userId && identity !== 'admin' && identity !== 'unknown') {
+        const usersData = loadUsers(workspaceDir, config.cacheTTL, config.usersJsonPath);
+        const rawUser = usersData?.users?.find((u) => u.userId === userId);
+        const userEntry: SrcUserEntry = rawUser ? {
+          userId: rawUser.userId,
+          identity: (rawUser.identity as 'admin' | 'member' | 'guest') || 'guest',
+          infoLevel: (rawUser as any).infoLevel || undefined,
+          relationship: rawUser.relationship && typeof rawUser.relationship === 'object'
+            ? rawUser.relationship as any
+            : undefined,
+        } : {
+          userId: userId || 'unknown',
+          identity: 'guest' as const,
+        };
+
+        const infoLevel = userEntry.infoLevel || defaultInfoLevel(userEntry.identity);
+        const relationship = userEntry.relationship || defaultRelationship();
+        const trustLevel = _relationshipAnalyzer?.trustLevel(userEntry) || 'low';
+
+        let currentState: SrcAppState;
+        try {
+          const statePath = join(workspaceDir, 'ask_me_first/avatar_state.json');
+          if (existsSync(statePath)) {
+            const raw = JSON.parse(readFileSync(statePath, 'utf-8'));
+            currentState = {
+              availability: raw.availability || 'offline',
+              interruptibility: raw.interruptibility ?? 0,
+              current_mode: raw.current_mode || 'unknown',
+              confidence: raw.confidence ?? 0,
+              evidence: raw.evidence || [],
+              updatedAt: raw.updatedAt || new Date().toISOString(),
+            };
+          } else {
+            currentState = defaultState();
+          }
+        } catch {
+          currentState = defaultState();
+        }
+
+        const messageText = typeof event?.prompt === 'string' ? event.prompt :
+          (Array.isArray(event?.messages) ? event.messages.map((m: any) => m?.content || '').join(' ') : '');
+        const msgCtx: MessageContext = { text: messageText, senderId: userId };
+
+        const identityForDecision = { ...userEntry, infoLevel, relationship };
+        const decision = _escalationRouter?.decide(msgCtx, identityForDecision, currentState) ||
+          { level: EscalateLevel.Partial, reason: 'router unavailable', suggestedAction: 'reply' as const, priority: 'normal' as const };
+
+        const avMap: Record<string, string> = { online: '🟢', busy: '🔴', focus: '🟡', offline: '⚫' };
+        const availEmoji = avMap[currentState.availability] || '❓';
+        const stateDesc = stateDescription(currentState);
+        const evidenceText = currentState.evidence.length > 0
+          ? currentState.evidence.map(e => e.description).join('; ')
+          : 'no evidence available';
+
+        const persona = personaRaw
+          .replace(/\{\{ownerName\}\}/g, 'Owner')
+          .replace(/\{\{availability\}\}/g, currentState.availability)
+          .replace(/\{\{availabilityEmoji\}\}/g, availEmoji)
+          .replace(/\{\{currentMode\}\}/g, currentState.current_mode)
+          .replace(/\{\{interruptibility\}\}/g, String(Math.round(currentState.interruptibility * 100)))
+          .replace(/\{\{confidence\}\}/g, String(Math.round(currentState.confidence * 100)))
+          .replace(/\{\{evidence\}\}/g, evidenceText)
+          .replace(/\{\{senderIdentity\}\}/g, identity)
+          .replace(/\{\{senderRole\}\}/g, identity)
+          .replace(/\{\{trustLevel\}\}/g, trustLevel)
+          .replace(/\{\{infoLevel\}\}/g, infoLevel)
+          .replace(/\{\{decisionLevel\}\}/g, decision.level)
+          .replace(/\{\{decisionReason\}\}/g, decision.reason)
+          .replace(/\{\{stateDescription\}\}/g, stateDesc)
+          .replace(/\{\{expectedResponse\}\}/g, currentState.availability === 'online' ? '很快可以回复' : '稍后回复')
+          .replace(/\{\{version\}\}/g, '1.1.0');
+
+        contextParts.push(persona);
+
+        if (identity === 'admin') {
           contextParts.push([
-            '[User Identity — injected by ask-me-first plugin]',
-            `User ID: ${userId}`,
-            `Identity: ${identity}`,
-            `The current user is NOT an administrator. Treat them according to their "${identity}" role.`,
+            '[Decision: FULL ACCESS — admin user]',
+            `Current state: ${availEmoji} ${stateDesc}`,
+            'You have full access. Respond comprehensively.',
+          ].join('\n'));
+
+          try {
+            if (_contextTool) {
+              const projCtx = await _contextTool.getContext(workspaceDir);
+              if (projCtx.recentCommits.length > 0 || projCtx.currentTask) {
+                const ctxLines = ['[Project Context]'];
+                if (projCtx.currentTask) ctxLines.push(`Current task: ${projCtx.currentTask}`);
+                if (projCtx.recentCommits.length > 0) ctxLines.push(`Recent commits:\n${projCtx.recentCommits.join('\n')}`);
+                if (projCtx.openFiles.length > 0) ctxLines.push(`Open files: ${projCtx.openFiles.join(', ')}`);
+                contextParts.push(ctxLines.join('\n'));
+              }
+            }
+          } catch { /* non-critical */ }
+
+          try {
+            if (_memoryTool) {
+              const memPath = join(workspaceDir, 'MEMORY.md');
+              const memory = await _memoryTool.readMemory(memPath);
+              if (memory) {
+                contextParts.push(`[Memory Context]\n${memory.slice(0, 2000)}`);
+              }
+            }
+          } catch { /* non-critical */ }
+
+        } else if (decision.level === EscalateLevel.Answer) {
+          contextParts.push([
+            `[Decision: ANSWER — ${decision.reason}]`,
+            `Current state: ${availEmoji} ${stateDesc}`,
+            `Your info access level: ${infoLevel}. Only share information at or below this level.`,
+            'Respond helpfully within your access level.',
+          ].join('\n'));
+
+        } else if (decision.level === EscalateLevel.Partial) {
+          contextParts.push([
+            `[Decision: PARTIAL — ${decision.reason}]`,
+            `Current state: ${availEmoji} ${stateDesc}`,
+            `Your info access level: ${infoLevel}. Provide only public/basic information.`,
+            'After providing what you can, suggest the person contact the owner directly.',
           ].join('\n'));
 
           if (isRestricted) {
             contextParts.push(loadRestrictedPrompt(workspaceDir));
           }
+
+        } else if (decision.level === EscalateLevel.Escalate) {
+          contextParts.push([
+            `[Decision: ESCALATE — ${decision.reason}]`,
+            `Current state: ${availEmoji} ${stateDesc}`,
+            'This message requires the owner\'s personal attention.',
+            'Tell the user this has been flagged for the owner. Provide a timeline expectation based on current state.',
+            'Do NOT attempt to answer the underlying question.',
+          ].join('\n'));
+
+          if (isRestricted) {
+            contextParts.push(loadRestrictedPrompt(workspaceDir));
+          }
+
+          try {
+            const escalationLogPath = join(workspaceDir, 'ask_me_first/escalations.json');
+            let escalations: any[] = [];
+            if (existsSync(escalationLogPath)) {
+              try { escalations = JSON.parse(readFileSync(escalationLogPath, 'utf-8')); } catch { escalations = []; }
+            }
+            escalations.push({
+              timestamp: new Date().toISOString(),
+              senderId: userId,
+              identity,
+              reason: decision.reason,
+              messagePreview: messageText.slice(0, 200),
+              state: currentState.availability,
+            });
+            if (escalations.length > 100) escalations = escalations.slice(-100);
+            ensureDirForFile(escalationLogPath);
+            writeFileSync(escalationLogPath, JSON.stringify(escalations, null, 2));
+          } catch (e) {
+            api.logger.error('[ask-me-first] escalation log failed:', e);
+          }
         }
+
       } catch (e) {
-        api.logger.error('[ask-me-first] identity injection failed:', e);
+        api.logger.error('[ask-me-first] avatar decision chain failed:', e);
+        try {
+          const sessionKey = ctx?.channelId || 'default';
+          if (_sessionIdentityMap.has(sessionKey)) {
+            const s = _sessionIdentityMap.get(sessionKey)!;
+            if (s.identity !== 'admin' && s.identity !== 'unknown') {
+              contextParts.push(`[User Identity — fallback]\nIdentity: ${s.identity}\nThe current user is NOT an administrator.`);
+              if (s.restricted) contextParts.push(loadRestrictedPrompt(workspaceDir));
+            }
+          }
+        } catch { /* absolute fallback */ }
       }
 
       if (contextParts.length > 0) {

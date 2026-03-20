@@ -1,6 +1,6 @@
 {
   "name": "ask-me-first",
-  "version": "1.0.6",
+  "version": "1.1.0",
   "description": "Personal work avatar system — identity-aware, state-sensing three-tier escalation for OpenClaw",
   "main": "index.ts",
   "type": "module",
@@ -44,5 +44,8 @@
     "digital-proxy",
     "feishu",
     "lark"
-  ]
+  ],
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  }
 }
