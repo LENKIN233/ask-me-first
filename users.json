@@ -24,7 +24,7 @@
       "identity": "member",
       "infoLevel": "internal",
       "slashCommandsAllowed": true,
-      "allowedCommands": ["new", "help", "status", "upgrade"],
+      "allowedCommands": ["new", "help", "avatar", "upgrade"],
       "relationship": {
         "team": "backend",
         "project": ["avatar"],

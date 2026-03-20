@@ -156,6 +156,54 @@ function resolveIdentity(workspaceDir: string, senderId: string, cacheTTL: numbe
   return { identity, restricted: identity !== 'admin' };
 }
 
+// ── Auto-register first user as admin ──
+
+function isPlaceholderUserId(userId: string): boolean {
+  if (!userId || typeof userId !== 'string') return true;
+  return /_your_|_example_|_here$/i.test(userId);
+}
+
+function hasValidAdmin(data: UsersData | null): boolean {
+  if (!data?.users) return false;
+  return data.users.some(
+    (u) => u.identity === 'admin' && !isPlaceholderUserId(u.userId),
+  );
+}
+
+function autoRegisterAdmin(
+  workspaceDir: string,
+  senderId: string,
+  usersJsonPath: string,
+  logger: { info: (...a: any[]) => void },
+): boolean {
+  try {
+    const p = join(workspaceDir, usersJsonPath);
+    if (!existsSync(p)) return false;
+    const data: UsersData = JSON.parse(readFileSync(p, 'utf-8'));
+    if (hasValidAdmin(data)) return false;
+
+    const adminEntry = data.users?.find(
+      (u) => u.identity === 'admin' && isPlaceholderUserId(u.userId),
+    );
+    if (!adminEntry) return false;
+
+    adminEntry.userId = senderId;
+    adminEntry.updatedAt = new Date().toISOString();
+    if (data.updatedAt) data.updatedAt = adminEntry.updatedAt;
+
+    writeFileSync(p, JSON.stringify(data, null, 2), 'utf-8');
+
+    // Invalidate cache so resolveIdentity picks up the change immediately
+    _usersCache = null;
+    _usersCacheTime = 0;
+
+    logger.info(`[ask-me-first] 🎉 First user auto-registered as admin: ${senderId}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ── Restricted prompt cache ──
 
 let _restrictedPromptCache = '';
@@ -418,6 +466,11 @@ const askMeFirstPlugin = {
       const workspaceDir = getWorkspaceDir();
       const senderId = event.from;
       if (!senderId) return;
+
+      const usersData = loadUsers(workspaceDir, config.cacheTTL, config.usersJsonPath);
+      if (!hasValidAdmin(usersData)) {
+        autoRegisterAdmin(workspaceDir, senderId, config.usersJsonPath, api.logger);
+      }
 
       const { identity, restricted } = resolveIdentity(workspaceDir, senderId, config.cacheTTL, config.usersJsonPath);
       const sessionKey = ctx.channelId || 'default';

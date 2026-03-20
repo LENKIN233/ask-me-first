@@ -381,3 +381,134 @@ describe('IdentityResolver', () => {
     assert.equal(user.identity, 'guest');
   });
 });
+
+describe('auto-register first user as admin', () => {
+  beforeEach(() => {
+    cleanFixtureDir();
+    ensureFixtureDir();
+  });
+
+  it('auto-registers first message sender as admin when users.json has only placeholders', async () => {
+    const workDir = ensureFixtureDir();
+    const templateUsers = {
+      version: '1.1',
+      updatedAt: '2026-01-01T00:00:00Z',
+      users: [
+        { userId: 'ou_your_admin_id_here', identity: 'admin' },
+        { userId: 'ou_example_member', identity: 'member' },
+      ],
+    };
+    writeFileSync(join(workDir, 'ask_me_first/users.json'), JSON.stringify(templateUsers, null, 2));
+
+    const plugin = await loadPlugin();
+    let messageHandler: any;
+    const logs: string[] = [];
+    const mockApi = {
+      pluginConfig: { enabled: true, cacheTTL: 0 },
+      logger: { info: (...a: any[]) => logs.push(a.join(' ')), error: () => {} },
+      config: { agents: { defaults: { workspace: workDir } } },
+      registerCommand: () => {},
+      on: (evt: string, fn: any) => { if (evt === 'message_received') messageHandler = fn; },
+      registerHook: () => {},
+      registerService: () => {},
+    };
+    plugin.register(mockApi);
+    assert.ok(messageHandler, 'message_received handler should be registered');
+
+    await messageHandler({ from: 'ou_real_user_abc' }, { channelId: 'ch1' });
+
+    const persisted = JSON.parse(readFileSync(join(workDir, 'ask_me_first/users.json'), 'utf-8'));
+    const admin = persisted.users.find((u: any) => u.identity === 'admin');
+    assert.equal(admin.userId, 'ou_real_user_abc', 'placeholder admin should be replaced with real userId');
+    assert.ok(logs.some(l => l.includes('auto-registered as admin')), 'should log auto-registration');
+  });
+
+  it('does NOT auto-register when users.json already has a real admin', async () => {
+    const workDir = ensureFixtureDir();
+    const users = {
+      version: '1.1',
+      users: [
+        { userId: 'ou_existing_real_admin', identity: 'admin' },
+        { userId: 'ou_example_member', identity: 'member' },
+      ],
+    };
+    writeFileSync(join(workDir, 'ask_me_first/users.json'), JSON.stringify(users, null, 2));
+
+    const plugin = await loadPlugin();
+    let messageHandler: any;
+    const mockApi = {
+      pluginConfig: { enabled: true, cacheTTL: 0 },
+      logger: { info: () => {}, error: () => {} },
+      config: { agents: { defaults: { workspace: workDir } } },
+      registerCommand: () => {},
+      on: (evt: string, fn: any) => { if (evt === 'message_received') messageHandler = fn; },
+      registerHook: () => {},
+      registerService: () => {},
+    };
+    plugin.register(mockApi);
+
+    await messageHandler({ from: 'ou_second_user' }, { channelId: 'ch2' });
+
+    const persisted = JSON.parse(readFileSync(join(workDir, 'ask_me_first/users.json'), 'utf-8'));
+    const admin = persisted.users.find((u: any) => u.identity === 'admin');
+    assert.equal(admin.userId, 'ou_existing_real_admin', 'real admin should NOT be overwritten');
+  });
+
+  it('second user message does NOT overwrite the already-registered admin', async () => {
+    const workDir = ensureFixtureDir();
+    const templateUsers = {
+      version: '1.1',
+      users: [
+        { userId: 'ou_your_admin_id_here', identity: 'admin' },
+      ],
+    };
+    writeFileSync(join(workDir, 'ask_me_first/users.json'), JSON.stringify(templateUsers, null, 2));
+
+    const plugin = await loadPlugin();
+    let messageHandler: any;
+    const mockApi = {
+      pluginConfig: { enabled: true, cacheTTL: 0 },
+      logger: { info: () => {}, error: () => {} },
+      config: { agents: { defaults: { workspace: workDir } } },
+      registerCommand: () => {},
+      on: (evt: string, fn: any) => { if (evt === 'message_received') messageHandler = fn; },
+      registerHook: () => {},
+      registerService: () => {},
+    };
+    plugin.register(mockApi);
+
+    await messageHandler({ from: 'ou_first_user' }, { channelId: 'ch1' });
+    await messageHandler({ from: 'ou_second_user' }, { channelId: 'ch2' });
+
+    const persisted = JSON.parse(readFileSync(join(workDir, 'ask_me_first/users.json'), 'utf-8'));
+    const admin = persisted.users.find((u: any) => u.identity === 'admin');
+    assert.equal(admin.userId, 'ou_first_user', 'first user should remain admin after second user message');
+  });
+
+  it('detects various placeholder patterns', async () => {
+    const workDir = ensureFixtureDir();
+
+    for (const placeholder of ['ou_your_admin_id_here', 'ou_example_admin', 'some_id_here']) {
+      const users = { version: '1.0', users: [{ userId: placeholder, identity: 'admin' }] };
+      writeFileSync(join(workDir, 'ask_me_first/users.json'), JSON.stringify(users, null, 2));
+
+      const plugin = await loadPlugin();
+      let messageHandler: any;
+      const mockApi = {
+        pluginConfig: { enabled: true, cacheTTL: 0 },
+        logger: { info: () => {}, error: () => {} },
+        config: { agents: { defaults: { workspace: workDir } } },
+        registerCommand: () => {},
+        on: (evt: string, fn: any) => { if (evt === 'message_received') messageHandler = fn; },
+        registerHook: () => {},
+        registerService: () => {},
+      };
+      plugin.register(mockApi);
+      await messageHandler({ from: 'ou_real_user' }, { channelId: 'ch1' });
+
+      const persisted = JSON.parse(readFileSync(join(workDir, 'ask_me_first/users.json'), 'utf-8'));
+      const admin = persisted.users.find((u: any) => u.identity === 'admin');
+      assert.equal(admin.userId, 'ou_real_user', `placeholder "${placeholder}" should be detected and replaced`);
+    }
+  });
+});

@@ -60,8 +60,8 @@ openclaw plugins install LENKIN233/ask-me-first
    git clone https://github.com/LENKIN233/ask-me-first.git
    ```
 
-2. **Configure your identity** — edit `users.json`:
-   - Replace `ou_your_admin_id_here` with your Feishu userId
+2. **Configure your identity** (optional — the first message sender is auto-registered as admin):
+   - To set up manually: edit `users.json` and replace `ou_your_admin_id_here` with your Feishu userId
    - Adjust member/guest entries as needed
 
 3. **Personalize prompts** — edit `prompts/avatar-system-prompt.txt`:
@@ -75,6 +75,8 @@ On first load, the plugin automatically:
 - Creates `~/.openclaw/workspace/ask_me_first/` and `ask_me_first/config/` directories
 - Copies template files (`users.json`, `restricted-mode-prompt.txt`, escalation rules, etc.) to the workspace if they don't already exist
 - Never overwrites your existing configuration
+
+**Zero-config admin setup**: The first person to send a message after installation is automatically registered as admin. No manual `users.json` editing needed — the plugin detects the template placeholder `userId` and replaces it with the real sender's Feishu userId. Subsequent users are resolved normally (member/guest based on `users.json` entries).
 
 ### Verify
 
