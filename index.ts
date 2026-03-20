@@ -6,9 +6,8 @@
  *
  * Registers:
  * - /avatar command (read current state, admin can set explicit state)
- * - message_received event (trust score tracking + session identity mapping)
- * - agent:bootstrap hook (identity + restricted-mode prompt injection)
- * - before_prompt_build event (avatar state context injection)
+ * - message_received hook (trust score tracking + session identity mapping)
+ * - before_prompt_build hook (avatar state + identity/restricted-mode prompt injection)
  * - Background service (state refresh every 10min + trust decay every hour)
  *
  * Known limitations:
@@ -489,110 +488,73 @@ const askMeFirstPlugin = {
     });
 
     // ──────────────────────────────────────────────
-    // 2b. agent:bootstrap — inject identity + restricted-mode prompt
+    // 3. before_prompt_build — inject avatar state + identity context
+    //    (Merged: avatar state injection + identity/restricted-mode prompt)
     // ──────────────────────────────────────────────
-    api.registerHook(['agent:bootstrap'], async (event: any) => {
-      const { type, action, context } = event;
-      if (!context) return;
+    api.on('before_prompt_build', async (event: any, ctx: any) => {
+      const workspaceDir = getWorkspaceDir();
+      const contextParts: string[] = [];
 
-      const workspaceDir = context.workspaceDir || getWorkspaceDir();
-
-      if (type === 'agent' && action === 'bootstrap') {
-        if (!Array.isArray(context.bootstrapFiles)) return;
-
-        // Init AvatarController via global context
-        if (context.global) {
-          try {
-            const { AvatarController } = await import('./src/controller.ts');
-            const controller = new AvatarController({
-              workspaceDir,
-              usersJsonPath: config.usersJsonPath,
-              stateConfig: {
-                enablePresence: config.enablePresence,
-                enableCalendar: config.enableCalendar,
-                calendarLookaheadHours: config.calendarLookaheadHours,
-                cacheTTL: config.stateRefreshIntervalMs,
-              },
-            });
-            await controller.init();
-            context.global.set('avatarController', controller);
-          } catch (e) {
-            api.logger.error('[ask-me-first] AvatarController init failed:', e);
-          }
+      // ── 3a. Avatar state context ──
+      try {
+        const statePath = join(workspaceDir, 'ask_me_first/avatar_state.json');
+        if (existsSync(statePath)) {
+          const st: AvatarState = JSON.parse(readFileSync(statePath, 'utf-8'));
+          const avMap: Record<string, string> = { online: '🟢 Online', busy: '🔴 Busy', focus: '🟡 Focus', offline: '⚫ Offline' };
+          contextParts.push([
+            '[Avatar State — injected by ask-me-first plugin]',
+            `Current availability: ${avMap[st.availability] || st.availability}`,
+            `Mode: ${st.current_mode}`,
+            `Interruptibility: ${Math.round((st.interruptibility || 0) * 100)}%`,
+            `Last updated: ${st.updatedAt || 'unknown'}`,
+          ].join('\n'));
         }
+      } catch (e) {
+        api.logger.error('[ask-me-first] state context injection failed:', e);
+      }
 
-        // Resolve identity from session map or metadata
-        const sessionKey = event.sessionKey;
+      // ── 3b. Identity + restricted-mode prompt injection ──
+      try {
+        const sessionKey = ctx?.channelId || 'default';
         let identity = 'unknown';
         let userId = '';
         let isRestricted = false;
 
-        if (sessionKey && _sessionIdentityMap.has(sessionKey)) {
+        // Try session map first (populated by message_received hook)
+        if (_sessionIdentityMap.has(sessionKey)) {
           const s = _sessionIdentityMap.get(sessionKey)!;
           identity = s.identity;
           userId = s.userId;
           isRestricted = s.restricted;
         }
 
-        if (!userId && context.metadata?.senderId) {
-          userId = context.metadata.senderId;
+        // Fallback: resolve from event metadata if available
+        if (!userId && (event?.from || ctx?.senderId)) {
+          userId = event?.from || ctx?.senderId;
           const r = resolveIdentity(workspaceDir, userId, config.cacheTTL, config.usersJsonPath);
           identity = r.identity;
           isRestricted = r.restricted;
         }
 
-        if (!userId || identity === 'admin') return;
+        // Only inject for non-admin identified users
+        if (userId && identity !== 'admin' && identity !== 'unknown') {
+          contextParts.push([
+            '[User Identity — injected by ask-me-first plugin]',
+            `User ID: ${userId}`,
+            `Identity: ${identity}`,
+            `The current user is NOT an administrator. Treat them according to their "${identity}" role.`,
+          ].join('\n'));
 
-        // Inject identity file into bootstrap
-        context.bootstrapFiles = [
-          ...context.bootstrapFiles,
-          {
-            name: 'user-identity.txt',
-            path: join(workspaceDir, config.usersJsonPath),
-            content: [
-              '[User Identity — injected by ask-me-first plugin]',
-              `User ID: ${userId}`,
-              `Identity: ${identity}`,
-              `The current user is NOT an administrator. Treat them according to their "${identity}" role.`,
-            ].join('\n'),
-          },
-        ];
-
-        if (isRestricted) {
-          context.bootstrapFiles = [
-            ...context.bootstrapFiles,
-            {
-              name: 'restricted-mode-prompt.txt',
-              path: join(workspaceDir, 'ask_me_first/restricted-mode-prompt.txt'),
-              content: loadRestrictedPrompt(workspaceDir),
-            },
-          ];
-        }
-      }
-    });
-
-    // ──────────────────────────────────────────────
-    // 3. before_prompt_build — inject avatar state context
-    // ──────────────────────────────────────────────
-    api.on('before_prompt_build', async (_event: any, _ctx: any) => {
-      const workspaceDir = getWorkspaceDir();
-      try {
-        const statePath = join(workspaceDir, 'ask_me_first/avatar_state.json');
-        if (existsSync(statePath)) {
-          const st: AvatarState = JSON.parse(readFileSync(statePath, 'utf-8'));
-          const avMap: Record<string, string> = { online: '🟢 Online', busy: '🔴 Busy', focus: '🟡 Focus', offline: '⚫ Offline' };
-          const stateContext = [
-            '[Avatar State — injected by ask-me-first plugin]',
-            `Current availability: ${avMap[st.availability] || st.availability}`,
-            `Mode: ${st.current_mode}`,
-            `Interruptibility: ${Math.round((st.interruptibility || 0) * 100)}%`,
-            `Last updated: ${st.updatedAt || 'unknown'}`,
-          ].join('\n');
-
-          return { appendSystemContext: stateContext };
+          if (isRestricted) {
+            contextParts.push(loadRestrictedPrompt(workspaceDir));
+          }
         }
       } catch (e) {
-        api.logger.error('[ask-me-first] state context injection failed:', e);
+        api.logger.error('[ask-me-first] identity injection failed:', e);
+      }
+
+      if (contextParts.length > 0) {
+        return { appendSystemContext: contextParts.join('\n\n') };
       }
     });
 
