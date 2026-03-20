@@ -308,7 +308,7 @@ function parseConfig(value: unknown): AskMeFirstConfig {
     stateRefreshIntervalMs: typeof raw.stateRefreshIntervalMs === 'number' ? raw.stateRefreshIntervalMs : 600000,
     trustDecayRate: typeof raw.trustDecayRate === 'number' ? raw.trustDecayRate : 0.01,
     cacheTTL: typeof raw.cacheTTL === 'number' ? raw.cacheTTL : 5000,
-    enablePresence: typeof raw.enablePresence === 'boolean' ? raw.enablePresence : process.platform === 'win32',
+    enablePresence: typeof raw.enablePresence === 'boolean' ? raw.enablePresence : false,
     enableCalendar: typeof raw.enableCalendar === 'boolean' ? raw.enableCalendar : false,
     calendarLookaheadHours: typeof raw.calendarLookaheadHours === 'number' ? raw.calendarLookaheadHours : 1,
   };

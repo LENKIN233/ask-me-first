@@ -29,7 +29,7 @@ describe('parseConfig', () => {
     assert.equal(config.cacheTTL, 5000);
     assert.equal(config.stateRefreshIntervalMs, 600000);
     assert.equal(config.trustDecayRate, 0.01);
-    assert.equal(config.enablePresence, process.platform === 'win32');
+    assert.equal(config.enablePresence, false);
     assert.equal(config.enableCalendar, false);
     assert.equal(config.calendarLookaheadHours, 1);
     assert.equal(config.usersJsonPath, 'ask_me_first/users.json');
@@ -284,10 +284,10 @@ describe('custom usersJsonPath', () => {
 });
 
 describe('enablePresence default', () => {
-  it('defaults to process.platform === win32 (not always true)', async () => {
+  it('defaults to false (opt-in, Windows-only feature)', async () => {
     const plugin = await loadPlugin();
     const config = plugin.configSchema.parse({});
-    assert.equal(config.enablePresence, process.platform === 'win32');
+    assert.equal(config.enablePresence, false);
   });
 
   it('can be explicitly overridden to true on non-windows', async () => {
@@ -510,5 +510,63 @@ describe('auto-register first user as admin', () => {
       const admin = persisted.users.find((u: any) => u.identity === 'admin');
       assert.equal(admin.userId, 'ou_real_user', `placeholder "${placeholder}" should be detected and replaced`);
     }
+  });
+});
+
+describe('first-startup initialization', () => {
+  const freshDir = join(import.meta.dirname, 'fixtures', '_fresh_startup_test');
+
+  beforeEach(() => {
+    if (existsSync(freshDir)) rmSync(freshDir, { recursive: true, force: true });
+  });
+
+  it('ensureRuntimeDirs creates dirs and copies templates from clean state', async () => {
+    const mod = await import('../index.ts');
+    const { ensureRuntimeDirs } = mod;
+
+    const logs: string[] = [];
+    const logger = {
+      info: (...args: any[]) => logs.push(args.join(' ')),
+      error: (...args: any[]) => logs.push('ERROR: ' + args.join(' ')),
+    };
+
+    const config = mod.default.configSchema.parse({});
+    ensureRuntimeDirs(freshDir, config, logger);
+
+    assert.ok(existsSync(join(freshDir, 'ask_me_first')), 'ask_me_first/ dir should be created');
+    assert.ok(existsSync(join(freshDir, 'ask_me_first', 'config')), 'ask_me_first/config/ dir should be created');
+
+    const usersJsonPath = join(freshDir, config.usersJsonPath);
+    if (existsSync(usersJsonPath)) {
+      const data = JSON.parse(readFileSync(usersJsonPath, 'utf-8'));
+      assert.ok(Array.isArray(data.users), 'users.json should have users array');
+    }
+
+    assert.ok(logs.some(l => l.includes('Created directory')), 'should log directory creation');
+
+    rmSync(freshDir, { recursive: true, force: true });
+  });
+
+  it('ensureRuntimeDirs does not overwrite existing files', async () => {
+    const mod = await import('../index.ts');
+    const { ensureRuntimeDirs } = mod;
+
+    const logger = {
+      info: () => {},
+      error: () => {},
+    };
+
+    const config = mod.default.configSchema.parse({});
+
+    mkdirSync(join(freshDir, 'ask_me_first'), { recursive: true });
+    const usersPath = join(freshDir, config.usersJsonPath);
+    writeFileSync(usersPath, JSON.stringify({ users: [{ identity: 'admin', userId: 'CUSTOM' }] }));
+
+    ensureRuntimeDirs(freshDir, config, logger);
+
+    const data = JSON.parse(readFileSync(usersPath, 'utf-8'));
+    assert.equal(data.users[0].userId, 'CUSTOM', 'existing users.json must not be overwritten');
+
+    rmSync(freshDir, { recursive: true, force: true });
   });
 });

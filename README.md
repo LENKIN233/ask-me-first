@@ -35,24 +35,13 @@ AvatarController:
 - Windows (state detection uses Win32 APIs)
 - Feishu/Lark channel configured
 
-### Installation (npm — recommended)
+### Installation
 
 ```bash
-# Install via npm
-npm install ask-me-first
-
-# Or via OpenClaw CLI (uses npm under the hood)
 openclaw plugins install ask-me-first
 ```
 
-### Installation (GitHub)
-
-```bash
-# Install directly from GitHub
-openclaw plugins install LENKIN233/ask-me-first
-```
-
-### Installation (Manual)
+### Manual Installation
 
 1. **Clone** into your OpenClaw extensions directory:
    ```bash
@@ -64,10 +53,7 @@ openclaw plugins install LENKIN233/ask-me-first
    - To set up manually: edit `users.json` and replace `ou_your_admin_id_here` with your Feishu userId
    - Adjust member/guest entries as needed
 
-3. **Personalize prompts** — edit `prompts/avatar-system-prompt.txt`:
-   - Replace `[Name]` with your actual name
-
-4. **Restart OpenClaw Gateway**
+3. **Restart OpenClaw Gateway**
 
 ### First Startup
 
@@ -81,12 +67,17 @@ On first load, the plugin automatically:
 ### Verify
 
 ```bash
-# Check plugin is loaded
-openclaw plugins list
-
-# Run smoke tests
-npx tsx ask-me-first/tests/smoke.test.ts
+openclaw plugins list          # should show ask-me-first
+openclaw plugins doctor        # should report no errors
 ```
+
+After restarting the gateway, send any message to your bot. The first sender is auto-registered as admin. Then try:
+
+```
+/avatar set coding
+```
+
+The bot should reply with a confirmation like `✅ State overridden to: coding`.
 
 ## Project Structure
 
