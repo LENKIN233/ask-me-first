@@ -1,6 +1,6 @@
 {
   "name": "ask-me-first",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Personal work avatar system — identity-aware, state-sensing three-tier escalation for OpenClaw",
   "main": "index.ts",
   "type": "module",
@@ -24,6 +24,7 @@
     "prompts/",
     "openclaw.plugin.json",
     "README.md",
+    "README.zh-CN.md",
     "SKILL.md",
     "users.json",
     "restricted-mode-prompt.txt"

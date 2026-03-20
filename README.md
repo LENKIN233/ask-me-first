@@ -1,6 +1,8 @@
+[English](README.md) | [中文](README.zh-CN.md)
+
 # Ask Me First — Personal Work Avatar System
 
-> 让别人先接触我的分身，而不是先打断我本人。
+> Let them talk to my avatar first — instead of interrupting me directly.
 
 A production-ready personal work avatar system for [OpenClaw](https://github.com/openclaw). It creates a digital proxy that handles colleague inquiries with identity-aware, state-sensing three-tier escalation.
 
@@ -171,6 +173,19 @@ Configure in `config/escalationRules.json`:
 - **Escalation notifications** — queued for owner review
 
 > ⚠️ Slash command access control (blocking unauthorized `/commands` at the gateway layer) is **not possible** via the plugin API alone. This would require a pre-command interception hook that OpenClaw does not yet provide.
+
+## Limitations & API Stability
+
+| Feature | Depends On | Stability |
+|---------|-----------|-----------|
+| `/avatar` command | `registerCommand` | ✅ Stable — core plugin API |
+| First-startup init | `register()` lifecycle | ✅ Stable — runs on plugin load |
+| Identity injection | `agent:bootstrap` hook | ✅ Stable — documented hook |
+| Trust tracking | `message_received` event | ⚠️ **Experimental** — may not fire in all OpenClaw versions |
+| Auto-register admin | `message_received` event | ⚠️ **Experimental** — same dependency as above |
+| State detection service | `registerService` | ✅ Stable — core plugin API |
+
+**If `message_received` is unavailable**: Trust scores will not update automatically, and auto-admin registration will not trigger. Workaround: manually edit `users.json` to set the admin userId, and trust scores will remain at their initial values until the hook is supported.
 
 ## Docs
 

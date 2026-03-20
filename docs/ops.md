@@ -5,8 +5,7 @@
 | 文件 | 内容 | 写入时机 |
 |------|------|----------|
 | `ask_me_first/queries.json` | 消息处理决策记录 | 每次 process() 调用 |
-| `ask_me_first/slash_log.json` | 被拒绝的斜杠命令 | 命令被 ACL 拒绝时 |
-| `ask_me_first/avatar_state.json` | 最新状态快照 | avatar-state hook 每 10min |
+| `ask_me_first/avatar_state.json` | 最新状态快照 | 后台服务每 10min 更新 |
 
 ## /avatar 命令
 
@@ -60,6 +59,6 @@ console.log(counts);
 
 ## 更新与回滚
 
-1. **代码更新**：修改 `src/` 后 hook 会自动加载最新代码（TypeScript 通过 ts-node）
-2. **Gateway 补丁**：运行 `inject.bat` 重新注入；回滚恢复 `reply-*.js.backup`
-3. **配置热更新**：`escalationRules.json` 通过 `controller.reloadConfig()` 热加载；`users.json` 有 5s 缓存
+1. **代码更新**：通过 `openclaw plugins update ask-me-first` 或手动拉取 git 仓库更新。
+2. **配置更新**：`escalationRules.json` 和 `users.json` 支持热加载，修改后即时生效（或在下次交互时触发加载）。
+3. **回滚**：使用 `openclaw plugins disable` 暂时停用插件，或通过 git 回退到稳定版本。

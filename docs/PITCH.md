@@ -120,9 +120,9 @@ Ask My Avatar First 给个人建立了一个全新的接口层：
 
 | 层级 | 防御机制 | 作用 |
 |------|---------|------|
-| **Hook 层** | `agent:bootstrap` 钩子 + 身份注入 | 在 Agent 启动时注入用户角色约束和受限模式提示词 |
-| **事件层** | `message_received` 事件监听 | 实时追踪会话身份映射，维护动态信任分数 |
-| **上下文层** | `before_prompt_build` 事件 | 将当前 Avatar 状态自动注入 Prompt 上下文 |
+| **Hook 注册** | `agent:bootstrap` 钩子 + 身份注入 | 在 Agent 启动时注入用户角色约束和受限模式提示词 |
+| **消息拦截** | `message_received` 事件监听 | 实时追踪会话身份映射，维护动态信任分数 |
+| **上下文注入** | `before_prompt_build` 事件 | 将当前 Avatar 状态自动注入 Prompt 上下文 |
 
 #### 四级信息可见性控制
 
@@ -392,7 +392,7 @@ ask-me-first/
 | 配置文件 | 6 个 JSON 配置（可热加载）|
 | 工具集成 | 4 个（Calendar / Presence / Context / Memory）|
 | 安全层 | 纯插件（Hook 注入 + 事件监听 + 受限模式提示词）|
-| 测试覆盖 | 12 项单元测试 + 冒烟测试 + 端到端验证 |
+| 测试覆盖 | 26 项单元测试 + 冒烟测试 + 端到端验证 |
 | 文档 | 部署指南 / 调优手册 / 运维监控 / 集成说明 |
 
 ---

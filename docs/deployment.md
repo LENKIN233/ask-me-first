@@ -10,98 +10,73 @@
   - `calendar`（如果使用日历功能）
 - 已准备好 `users.json` 用户映射（v1.1 格式，含 relationship 字段）
 
-## 步骤
+## 安装步骤
 
-### 1. 准备配置文件
+### 1. 插件安装
 
-```bash
-cd ask_me_first
-
-# 编辑 users.json，填入实际的 userId、身份和关系信息
-# 参考 users.json 中的 ou_example_member / ou_example_guest
-
-# 检查 config/ 下的配置
-# - config/escalationRules.json — 升级规则（可按需调整 priority/pattern）
-# - config/identities.json — 身份定义
-# - config/templates.json — 回复模板
-```
-
-### 2. 注入 Gateway 补丁
-
-```powershell
-# 运行自动注入脚本（会自动备份、注入、重启）
-.\gateway-patch\inject.bat
-
-# 脚本会：
-# 1. 定位 reply-*.js bundle
-# 2. 检查是否已注入（避免重复）
-# 3. 备份到 .backup
-# 4. 用 PowerShell 在 handleAbortTrigger 后注入补丁
-# 5. 重启 Gateway
-```
-
-### 3. Hook 自动发现
-
-OpenClaw 自动扫描 `workspace/hooks/` 目录：
-
-```
-workspace/hooks/
-├── ask-me-first/
-│   ├── HOOK.md          # 前端元数据（events: message:received, agent:bootstrap）
-│   └── handler.ts       # agent:bootstrap 注入 AvatarController + message:received 更新交互
-│
-└── avatar-state/
-    ├── HOOK.md          # 前端元数据（events: agent:bootstrap）
-    └── updater.ts       # 启动 10min 定时器刷新状态
-```
-
-确保 `openclaw.json` 中 `hooks.internal.enabled` 为 `true`：
-
-```json
-{
-  "hooks": {
-    "internal": {
-      "enabled": true
-    }
-  }
-}
-```
-
-### 4. 重启 Gateway
+使用 OpenClaw CLI 进行安装：
 
 ```bash
-openclaw gateway restart
-# 或使用 workspace/restart-gateway.cmd
+openclaw plugins install ask-me-first
 ```
 
-### 5. 验证
+或者手动安装：将插件代码克隆到 `~/.openclaw/extensions/ask-me-first` 目录下。
 
-- 发送消息给 bot：
-  - admin 用户：应收到包含状态和上下文的回复
-  - member 用户：应收到部分信息 + 建议升级
-  - guest 用户：应收到公开信息或升级提示
-- 发送 "找本人" 或 "转接"：应触发 Escalate 决策
-- 斜杠命令测试：guest 发送 `/new` 应被拦截
-- 检查日志：`ask_me_first/slash_log.json` 和 `queries.json`
+### 2. 初始化与配置
 
-### 6. 冒烟测试
+插件在首次启动时会自动在工作区创建必要的目录并拷贝配置模板。
+
+- **自动注册管理员**：首个发送消息给机器人的用户将被自动注册为管理员（Admin）。
+- **用户映射**：编辑 `users.json`，填入实际的 userId、身份和关系信息。
+- **核心配置**：检查 `openclaw.plugin.json` 或插件配置界面中的以下项：
+  - `usersJsonPath` — `users.json` 路径
+  - `enablePresence` — 是否启用存在感知（默认为 false）
+  - `enableCalendar` — 是否启用日历集成
+
+### 3. 验证安装
+
+运行以下命令验证插件状态：
 
 ```bash
-cd ask_me_first
-npx tsx tests/smoke.test.ts
-# 应输出 ✅ All tests passed
+# 查看插件是否在列表中且已启用
+openclaw plugins list
+
+# 运行插件健康检查
+openclaw plugins doctor ask-me-first
 ```
 
-## 常见问题
+## 验证与测试
 
-**Q: Hook 未触发？**
-A: 检查 hook 目录下是否有 `HOOK.md`，且 frontmatter 中 `openclaw.events` 列表正确。运行 `openclaw hooks status` 查看注册状态。
+- **身份测试**：发送消息给机器人
+  - **Admin 用户**：应收到包含详细状态和上下文的回复。
+  - **Member 用户**：应收到部分信息，并建议在必要时升级。
+  - **Guest 用户**：应收到公开信息或升级提示。
+- **决策测试**：发送 "找本人" 或 "转接"，应触发 Escalation 决策并记录到升级队列。
+- **冒烟测试**：
+  ```bash
+  npm test
+  ```
+  应显示 26 项单元测试全部通过。
 
-**Q: Gateway 补丁丢失？**
-A: `npm update openclaw` 会覆盖 dist 文件。更新后重新运行 `inject.bat`。
+## 架构说明
 
-**Q: 状态检测无数据？**
-A: 本地检测需要 PowerShell 执行权限。确认 `avatar_state.json` 是否被写入。可暂时在 stateConfig 中设 `enablePresence: false`。
+当前采用 **纯插件架构（Pure-Plugin Architecture）**：
+- 所有的功能逻辑均通过 `index.ts` 调用 OpenClaw Plugin API 实现。
+- 插件通过 `registerCommand('/avatar')` 注册命令。
+- 通过 `api.on('message_received')` 拦截并处理消息。
+- 通过 `registerService()` 注册后台状态更新服务。
+- 不再依赖 `hooks/`、`gateway-patch/` 或 `inject.bat`。
 
-**Q: inject.bat 报错 "补丁已存在"？**
-A: 说明补丁已注入。如需重新注入，先从 `.backup` 恢复原文件。
+## 常见问题 (FAQ)
+
+**Q: 插件未加载？**
+A: 运行 `openclaw plugins list` 确认 `ask-me-first` 是否处于 `enabled` 状态。如果未显示，请检查 `~/.openclaw/extensions/` 目录结构。
+
+**Q: 状态检测没有数据？**
+A: 确保在配置中开启了 `enablePresence` 或 `enableCalendar`。本地检测需要相应的系统权限。如果不需要状态感知，可保持 `enablePresence: false`。
+
+**Q: 如何重新指定管理员？**
+A: 手动编辑 `users.json`，修改对应用户的 `role` 为 `admin`。
+
+**Q: 升级决策未触发？**
+A: 检查 `config/escalationRules.json` 中的规则匹配模式（pattern）是否覆盖了你的输入关键词。

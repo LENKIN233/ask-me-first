@@ -58,14 +58,8 @@ ask-me-first/
 ## 安装
 
 ```bash
-# 通过 npm 安装（推荐）
-npm install ask-me-first
-
-# 或通过 OpenClaw CLI
+# 通过 OpenClaw CLI 安装（推荐）
 openclaw plugins install ask-me-first
-
-# 或从 GitHub 安装
-openclaw plugins install LENKIN233/ask-me-first
 ```
 
 ## 配置

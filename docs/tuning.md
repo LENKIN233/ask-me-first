@@ -6,10 +6,12 @@
 
 | 参数 | 说明 | 建议值 |
 |------|------|--------|
-| `stateConfig.cacheTTL` | 状态缓存时间（ms） | 300000-600000（5-10 分钟） |
-| `stateConfig.enablePresence` | 本地桌面活跃度检测 | `true`（仅 Windows 桌面端） |
-| `stateConfig.enableCalendar` | 飞书日历集成 | `true`（需配置凭证） |
-| `stateConfig.calendarLookaheadHours` | 日历查询范围 | 1-2 小时 |
+| `cacheTTL` | 状态缓存时间（ms） | 300000-600000（5-10 分钟） |
+| `enablePresence` | 本地桌面活跃度检测 | `false`（默认，仅 Windows 桌面端支持开启） |
+| `enableCalendar` | 飞书日历集成 | `true`（需配置凭证） |
+| `calendarLookaheadHours` | 日历查询范围 | 1-2 小时 |
+| `stateRefreshIntervalMs` | 状态刷新间隔 | 600000 (10 分钟) |
+| `trustDecayRate` | 信任度每日衰减率 | 0.01 |
 
 ### 飞书日历配置
 
@@ -68,7 +70,7 @@ ContextTool 自动检测：
 - 检测依据（evidence）
 - 最后更新时间
 
-数据来源：`avatar_state.json`（由 avatar-state hook 每 10 分钟写入）
+数据来源：由插件注册的后台服务（Background Service）每 10 分钟自动更新。
 
 ## 监控指标
 
