@@ -10,8 +10,11 @@ import fs from 'fs';
 export class IdentityResolver {
   private config: IdentityConfig | null = null;
   private cache = new StateCache(5000);
+  private usersJsonPath: string;
 
-  constructor(private workspaceDir: string) {}
+  constructor(private workspaceDir: string, usersJsonPath?: string) {
+    this.usersJsonPath = usersJsonPath ?? `${workspaceDir}/ask_me_first/users.json`;
+  }
 
   async resolve(userId: string): Promise<UserEntry & { infoLevel: string; relationship: NonNullable<UserEntry['relationship']> }> {
     const cacheKey = `identity:${userId}`;
@@ -47,9 +50,8 @@ export class IdentityResolver {
   private async loadConfig(): Promise<void> {
     if (this.config) return;
 
-    const filePath = `${this.workspaceDir}/ask_me_first/users.json`;
     try {
-      const content = await this.readFile(filePath);
+      const content = await this.readFile(this.usersJsonPath);
       this.config = JSON.parse(content);
     } catch (error) {
       console.error('[IdentityResolver] Failed to load users.json:', error);
@@ -67,16 +69,25 @@ export class IdentityResolver {
   }
 
   async updateTrustScore(userId: string, delta: number): Promise<void> {
-    const user = await this.resolve(userId);
+    await this.loadConfig();
+    if (!this.config) return;
+
+    const user = this.config.users.find(u => u.userId === userId);
+    if (!user) return;
+
+    // Ensure relationship exists
+    if (!user.relationship) {
+      user.relationship = defaultRelationship();
+    }
     user.relationship.trustScore = Math.max(0, Math.min(1, user.relationship.trustScore + delta));
     user.relationship.lastInteraction = new Date().toISOString();
+    this.cache.clear();
     await this.persist();
   }
 
   private async persist(): Promise<void> {
     if (!this.config) return;
-    const filePath = `${this.workspaceDir}/ask_me_first/users.json`;
-    this.writeFile(filePath, JSON.stringify(this.config, null, 2));
+    this.writeFile(this.usersJsonPath, JSON.stringify(this.config, null, 2));
   }
 
   private writeFile(filePath: string, content: string): void {
@@ -88,7 +99,7 @@ export class IdentityResolver {
     this.cache.clear();
   }
 
-  async decayTrustScores(): Promise<void> {
+  async decayTrustScores(decayRate = 0.01): Promise<void> {
     await this.loadConfig();
     if (!this.config) return;
 
@@ -100,7 +111,7 @@ export class IdentityResolver {
       const daysSince = (now - new Date(user.relationship.lastInteraction).getTime()) / (1000 * 60 * 60 * 24);
       if (daysSince < 1) continue;
 
-      const decay = Math.floor(daysSince) * 0.01;
+      const decay = Math.floor(daysSince) * decayRate;
       const newScore = Math.max(0, user.relationship.trustScore - decay);
       if (newScore !== user.relationship.trustScore) {
         user.relationship.trustScore = newScore;

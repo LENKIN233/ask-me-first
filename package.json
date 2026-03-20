@@ -19,7 +19,9 @@
     "config/",
     "prompts/",
     "openclaw.plugin.json",
-    "README.md"
+    "README.md",
+    "users.json",
+    "restricted-mode-prompt.txt"
   ],
   "openclaw": {
     "extensions": [

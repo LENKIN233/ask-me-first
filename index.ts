@@ -11,9 +11,9 @@
  * - before_prompt_build hook (avatar state context injection)
  * - Background service (state refresh every 10min + trust decay every hour)
  *
- * Note: Slash command access control (blocking unauthorized /commands) still requires
- * the gateway bundle patch. The plugin API does not yet provide a pre-command
- * interception hook.
+ * Limitation: Slash command access control (blocking unauthorized /commands) is not
+ * possible via the plugin API alone — it would require a gateway-level interception
+ * hook that does not yet exist in OpenClaw.
  */
 
 import { join } from 'path';
@@ -65,11 +65,11 @@ let _usersCacheTime = 0;
 
 const _sessionIdentityMap = new Map<string, { identity: string; userId: string; restricted: boolean }>();
 
-function loadUsers(workspaceDir: string, cacheTTL: number): UsersData | null {
+function loadUsers(workspaceDir: string, cacheTTL: number, usersJsonPath = 'ask_me_first/users.json'): UsersData | null {
   const now = Date.now();
   if (_usersCache && (now - _usersCacheTime) < cacheTTL) return _usersCache;
   try {
-    const p = join(workspaceDir, 'ask_me_first/users.json');
+    const p = join(workspaceDir, usersJsonPath);
     if (!existsSync(p)) return null;
     _usersCache = JSON.parse(readFileSync(p, 'utf-8'));
     _usersCacheTime = now;
@@ -79,8 +79,8 @@ function loadUsers(workspaceDir: string, cacheTTL: number): UsersData | null {
   }
 }
 
-function resolveIdentity(workspaceDir: string, senderId: string, cacheTTL: number): { identity: string; restricted: boolean } {
-  const data = loadUsers(workspaceDir, cacheTTL);
+function resolveIdentity(workspaceDir: string, senderId: string, cacheTTL: number, usersJsonPath = 'ask_me_first/users.json'): { identity: string; restricted: boolean } {
+  const data = loadUsers(workspaceDir, cacheTTL, usersJsonPath);
   if (!data) return { identity: 'guest', restricted: true };
   const user = data.users?.find((u) => u.userId === senderId);
   if (!user) return { identity: 'guest', restricted: true };
@@ -166,11 +166,12 @@ async function refreshAvatarState(workspaceDir: string, config: AskMeFirstConfig
   }
 }
 
-async function decayTrust(workspaceDir: string, logger: { info: (...args: any[]) => void; error: (...args: any[]) => void }): Promise<void> {
+async function decayTrust(workspaceDir: string, config: AskMeFirstConfig, logger: { info: (...args: any[]) => void; error: (...args: any[]) => void }): Promise<void> {
   try {
     const { IdentityResolver } = await import('./src/identity/resolver.js');
-    const resolver = new IdentityResolver(workspaceDir);
-    await resolver.decayTrustScores();
+    const usersPath = join(workspaceDir, config.usersJsonPath);
+    const resolver = new IdentityResolver(workspaceDir, usersPath);
+    await resolver.decayTrustScores(config.trustDecayRate);
     logger.info('[ask-me-first] trust decay check complete');
   } catch (e) {
     logger.error('[ask-me-first] trust decay failed:', e);
@@ -269,7 +270,7 @@ const askMeFirstPlugin = {
           const senderId = ctx.senderId || ctx.from;
           if (!senderId) return { text: '⛔ 无法识别发送者身份。' };
 
-          const { identity } = resolveIdentity(workspaceDir, senderId, config.cacheTTL);
+          const { identity } = resolveIdentity(workspaceDir, senderId, config.cacheTTL, config.usersJsonPath);
           if (identity !== 'admin') {
             return { text: '⛔ 仅管理员可设定显式状态。' };
           }
@@ -336,14 +337,15 @@ const askMeFirstPlugin = {
       const senderId = event.from;
       if (!senderId) return;
 
-      const { identity, restricted } = resolveIdentity(workspaceDir, senderId, config.cacheTTL);
+      const { identity, restricted } = resolveIdentity(workspaceDir, senderId, config.cacheTTL, config.usersJsonPath);
       const sessionKey = ctx.channelId || 'default';
       _sessionIdentityMap.set(sessionKey, { identity, userId: senderId, restricted });
 
       if (identity !== 'admin') {
         try {
           const { IdentityResolver } = await import('./src/identity/resolver.js');
-          const resolver = new IdentityResolver(workspaceDir);
+          const usersPath = join(workspaceDir, config.usersJsonPath);
+          const resolver = new IdentityResolver(workspaceDir, usersPath);
           await resolver.updateTrustScore(senderId, 0.01);
         } catch (e) {
           api.logger.error('[ask-me-first] trust update failed:', e);
@@ -398,7 +400,7 @@ const askMeFirstPlugin = {
 
         if (!userId && context.metadata?.senderId) {
           userId = context.metadata.senderId;
-          const r = resolveIdentity(workspaceDir, userId, config.cacheTTL);
+          const r = resolveIdentity(workspaceDir, userId, config.cacheTTL, config.usersJsonPath);
           identity = r.identity;
           isRestricted = r.restricted;
         }
@@ -410,7 +412,7 @@ const askMeFirstPlugin = {
           ...context.bootstrapFiles,
           {
             name: 'user-identity.txt',
-            path: join(workspaceDir, 'ask_me_first/users.json'),
+            path: join(workspaceDir, config.usersJsonPath),
             content: [
               '[User Identity — injected by ask-me-first plugin]',
               `User ID: ${userId}`,
@@ -483,7 +485,7 @@ const askMeFirstPlugin = {
           const now = Date.now();
           if (now - _lastDecay >= DECAY_INTERVAL_MS) {
             _lastDecay = now;
-            decayTrust(workspaceDir, logger).catch(() => {});
+            decayTrust(workspaceDir, config, logger).catch(() => {});
           }
         }, config.stateRefreshIntervalMs);
 

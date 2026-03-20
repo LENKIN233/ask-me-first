@@ -246,3 +246,138 @@ describe('/status command handler', () => {
     assert.ok(result.text.includes('无法识别'));
   });
 });
+
+describe('custom usersJsonPath', () => {
+  beforeEach(() => {
+    cleanFixtureDir();
+    ensureFixtureDir();
+  });
+
+  it('resolves identity from custom path', async () => {
+    const workDir = ensureFixtureDir();
+    const customDir = join(workDir, 'custom');
+    mkdirSync(customDir, { recursive: true });
+    const users = { users: [{ userId: 'admin1', identity: 'admin' }] };
+    writeFileSync(join(customDir, 'people.json'), JSON.stringify(users));
+
+    const plugin = await loadPlugin();
+    let handler: any;
+    const mockApi = {
+      pluginConfig: { enabled: true, cacheTTL: 0, usersJsonPath: 'custom/people.json' },
+      logger: { info: () => {}, error: () => {} },
+      config: { workspaceDir: workDir },
+      registerCommand: (opts: any) => { handler = opts.handler; },
+      on: () => {},
+      registerHook: () => {},
+      registerService: () => {},
+    };
+    plugin.register(mockApi);
+
+    writeFileSync(join(workDir, 'ask_me_first/avatar_state.json'), JSON.stringify({
+      availability: 'online', interruptibility: 0.9, current_mode: 'idle',
+      confidence: 0.8, updatedAt: new Date().toISOString(),
+    }));
+
+    const result = handler({ args: 'set online', senderId: 'admin1' });
+    assert.ok(result.text.includes('✅'), 'admin should be resolved from custom path');
+  });
+});
+
+describe('enablePresence default', () => {
+  it('defaults to process.platform === win32 (not always true)', async () => {
+    const plugin = await loadPlugin();
+    const config = plugin.configSchema.parse({});
+    assert.equal(config.enablePresence, process.platform === 'win32');
+  });
+
+  it('can be explicitly overridden to true on non-windows', async () => {
+    const plugin = await loadPlugin();
+    const config = plugin.configSchema.parse({ enablePresence: true });
+    assert.equal(config.enablePresence, true);
+  });
+
+  it('can be explicitly overridden to false on windows', async () => {
+    const plugin = await loadPlugin();
+    const config = plugin.configSchema.parse({ enablePresence: false });
+    assert.equal(config.enablePresence, false);
+  });
+});
+
+describe('IdentityResolver', () => {
+  beforeEach(() => {
+    cleanFixtureDir();
+    ensureFixtureDir();
+  });
+
+  it('updateTrustScore persists to users.json', async () => {
+    const workDir = ensureFixtureDir();
+    const usersPath = join(workDir, 'ask_me_first/users.json');
+    const users = {
+      version: '1.0',
+      users: [{
+        userId: 'member1',
+        identity: 'member',
+        relationship: { project: [], role: 'peer', trustScore: 0.5, lastInteraction: new Date().toISOString() },
+      }],
+    };
+    writeFileSync(usersPath, JSON.stringify(users, null, 2));
+
+    const { IdentityResolver } = await import('../src/identity/resolver.js');
+    const resolver = new IdentityResolver(workDir, usersPath);
+    await resolver.updateTrustScore('member1', 0.1);
+
+    const persisted = JSON.parse(readFileSync(usersPath, 'utf-8'));
+    assert.ok(Math.abs(persisted.users[0].relationship.trustScore - 0.6) < 0.001, `expected ~0.6, got ${persisted.users[0].relationship.trustScore}`);
+  });
+
+  it('updateTrustScore creates relationship for users without one', async () => {
+    const workDir = ensureFixtureDir();
+    const usersPath = join(workDir, 'ask_me_first/users.json');
+    const users = {
+      version: '1.0',
+      users: [{ userId: 'guest1', identity: 'guest' }],
+    };
+    writeFileSync(usersPath, JSON.stringify(users, null, 2));
+
+    const { IdentityResolver } = await import('../src/identity/resolver.js');
+    const resolver = new IdentityResolver(workDir, usersPath);
+    await resolver.updateTrustScore('guest1', 0.05);
+
+    const persisted = JSON.parse(readFileSync(usersPath, 'utf-8'));
+    assert.ok(persisted.users[0].relationship, 'relationship should be created');
+    assert.ok(Math.abs(persisted.users[0].relationship.trustScore - 0.05) < 0.001);
+  });
+
+  it('decayTrustScores uses custom decay rate', async () => {
+    const workDir = ensureFixtureDir();
+    const usersPath = join(workDir, 'ask_me_first/users.json');
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    const users = {
+      version: '1.0',
+      users: [{
+        userId: 'member1',
+        identity: 'member',
+        relationship: { project: [], role: 'peer', trustScore: 0.5, lastInteraction: twoDaysAgo },
+      }],
+    };
+    writeFileSync(usersPath, JSON.stringify(users, null, 2));
+
+    const { IdentityResolver } = await import('../src/identity/resolver.js');
+    const resolver = new IdentityResolver(workDir, usersPath);
+    await resolver.decayTrustScores(0.1);
+
+    const persisted = JSON.parse(readFileSync(usersPath, 'utf-8'));
+    assert.ok(persisted.users[0].relationship.trustScore < 0.5, 'trust should have decayed');
+    assert.ok(Math.abs(persisted.users[0].relationship.trustScore - 0.3) < 0.001, `expected ~0.3, got ${persisted.users[0].relationship.trustScore}`);
+  });
+
+  it('gracefully handles missing users.json', async () => {
+    const workDir = ensureFixtureDir();
+    const missingPath = join(workDir, 'nonexistent/users.json');
+
+    const { IdentityResolver } = await import('../src/identity/resolver.js');
+    const resolver = new IdentityResolver(workDir, missingPath);
+    const user = await resolver.resolve('anyone');
+    assert.equal(user.identity, 'guest');
+  });
+});

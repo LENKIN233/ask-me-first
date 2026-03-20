@@ -65,7 +65,7 @@
       },
       "enablePresence": {
         "type": "boolean",
-        "default": true
+        "default": false
       },
       "enableCalendar": {
         "type": "boolean",

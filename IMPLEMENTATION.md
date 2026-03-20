@@ -1,5 +1,8 @@
 # Ask My Avatar First - 实现方案
 
+> ⚠️ 本文件为初版设计文档，仅供参考。实际架构已迁移为纯插件模式（index.ts 入口），hooks/ 和 gateway-patch/ 目录已移除。
+> 当前实际结构请参考 README.md。
+
 > 基于现有 `ask_me_first` 框架，升级为完整的个人工作接口系统
 
 ---

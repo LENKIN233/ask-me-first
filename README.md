@@ -81,6 +81,8 @@ ask-me-first/
 ├── index.ts                      # Plugin entry point (hooks, commands, services — all in one)
 ├── openclaw.plugin.json          # Plugin manifest (config schema, UI hints)
 ├── package.json                  # npm metadata + OpenClaw extension declaration
+├── users.json                    # User identity mapping template (edit & copy to workspace)
+├── restricted-mode-prompt.txt    # Guest restricted-mode prompt template
 ├── src/                          # Core TypeScript source
 │   ├── controller.ts             # AvatarController orchestrator
 │   ├── state/                    # State detection (detector, cache)
@@ -103,15 +105,20 @@ ask-me-first/
 │   ├── deployment.md             # Deployment guide
 │   ├── ops.md                    # Operations guide
 │   └── tuning.md                 # Tuning guide
-├── users.json                    # User identity mapping (edit this!)
-├── query.ts                      # Query handler
-├── slash-command-guard.ts        # Slash command authorization
-├── restricted-mode.ts            # Guest restricted mode
-├── IMPLEMENTATION.md             # Technical implementation details
-├── INTEGRATION.md                # Integration guide
-├── SETUP.md                      # Setup instructions
+├── IMPLEMENTATION.md             # Original design doc (historical reference)
 └── SKILL.md                      # OpenClaw skill description
 ```
+
+### Directory Model
+
+**Repo source** (this repository) contains templates and code.
+**Runtime workspace** (`~/.openclaw/workspace/ask_me_first/`) is where the plugin reads/writes at runtime:
+- `users.json` — active user identity data
+- `avatar_state.json` — auto-generated state snapshots
+- `config/escalationRules.json` — active escalation rules
+- `restricted-mode-prompt.txt` — active restricted-mode prompt
+
+On first install, copy `users.json`, `config/`, and `restricted-mode-prompt.txt` from this repo into your workspace's `ask_me_first/` directory.
 
 ## Configuration
 
@@ -151,18 +158,19 @@ Configure in `config/escalationRules.json`:
 - **Pure plugin architecture** — all functionality in a single `index.ts`, no external hooks/ directory needed
 - **Identity-aware message handling** — `message_received` hook tracks trust and maps session identity
 - **Agent bootstrap injection** — identity + restricted-mode prompt injected via `agent:bootstrap` hook
+- **Configurable paths** — `usersJsonPath` and `trustDecayRate` are runtime-configurable via plugin settings
 - **5-second in-memory cache** — avoids disk reads on every message
-- **Trust score decay** — inactive users lose access gradually
+- **Trust score decay** — inactive users lose access gradually (configurable rate)
 - **Explicit state override** — admin can force state via `/status set`
 - **Template-based replies** — consistent, configurable response format
 - **Escalation notifications** — queued for owner review
 
+> ⚠️ Slash command access control (blocking unauthorized `/commands` at the gateway layer) is **not possible** via the plugin API alone. This would require a pre-command interception hook that OpenClaw does not yet provide.
+
 ## Docs
 
 - [PITCH.md](docs/PITCH.md) — Full project pitch and design rationale (Chinese)
-- [IMPLEMENTATION.md](IMPLEMENTATION.md) — Technical architecture details
-- [INTEGRATION.md](INTEGRATION.md) — Integration with OpenClaw Gateway
-- [SETUP.md](SETUP.md) — Step-by-step setup guide
+- [IMPLEMENTATION.md](IMPLEMENTATION.md) — Original design doc (historical reference)
 - [deployment.md](docs/deployment.md) — Production deployment
 - [ops.md](docs/ops.md) — Operations runbook
 - [tuning.md](docs/tuning.md) — Performance tuning
