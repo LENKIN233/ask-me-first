@@ -156,7 +156,7 @@ The main configuration file. Define who can access what:
 The background service detects your current activity every 10 minutes:
 - **Foreground window** analysis (VS Code → coding, Teams → meeting, etc.)
 - **Calendar** integration for scheduled events
-- **Explicit override** via `/status set <state>` command
+- **Explicit override** via `/avatar set <state>` command
 
 ### Escalation Rules
 
@@ -173,7 +173,7 @@ Configure in `config/escalationRules.json`:
 - **Configurable paths** — `usersJsonPath` and `trustDecayRate` are runtime-configurable via plugin settings
 - **5-second in-memory cache** — avoids disk reads on every message
 - **Trust score decay** — inactive users lose access gradually (configurable rate)
-- **Explicit state override** — admin can force state via `/status set`
+- **Explicit state override** — admin can force state via `/avatar set`
 - **Template-based replies** — consistent, configurable response format
 - **Escalation notifications** — queued for owner review
 

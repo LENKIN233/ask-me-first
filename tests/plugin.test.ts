@@ -92,7 +92,7 @@ describe('register', () => {
     const mockApi = {
       pluginConfig: { enabled: false },
       logger: { info: (...args: any[]) => calls.push(args.join(' ')), error: () => {} },
-      config: { workspaceDir: FIXTURE_DIR },
+      config: { agents: { defaults: { workspace: FIXTURE_DIR } } },
       registerCommand: () => { calls.push('registerCommand'); },
       on: () => { calls.push('on'); },
       registerHook: () => { calls.push('registerHook'); },
@@ -111,21 +111,21 @@ describe('register', () => {
     const mockApi = {
       pluginConfig: { enabled: true },
       logger: { info: () => {}, error: () => {} },
-      config: { workspaceDir: FIXTURE_DIR },
+      config: { agents: { defaults: { workspace: FIXTURE_DIR } } },
       registerCommand: () => { registered.command++; },
       on: () => { registered.on++; },
       registerHook: () => { registered.hook++; },
       registerService: () => { registered.service++; },
     };
     plugin.register(mockApi);
-    assert.equal(registered.command, 1, 'should register 1 command (/status)');
+    assert.equal(registered.command, 1, 'should register 1 command (/avatar)');
     assert.equal(registered.on, 2, 'should register 2 event handlers (message_received + before_prompt_build)');
     assert.equal(registered.hook, 1, 'should register 1 raw hook (agent:bootstrap)');
     assert.equal(registered.service, 1, 'should register 1 service (state refresh)');
   });
 });
 
-describe('/status command handler', () => {
+describe('/avatar command handler', () => {
   beforeEach(() => {
     cleanFixtureDir();
     ensureFixtureDir();
@@ -137,7 +137,7 @@ describe('/status command handler', () => {
     const mockApi = {
       pluginConfig: { enabled: true },
       logger: { info: () => {}, error: () => {} },
-      config: { workspaceDir: FIXTURE_DIR },
+      config: { agents: { defaults: { workspace: FIXTURE_DIR } } },
       registerCommand: (opts: any) => { handler = opts.handler; },
       on: () => {},
       registerHook: () => {},
@@ -166,7 +166,7 @@ describe('/status command handler', () => {
     const mockApi = {
       pluginConfig: { enabled: true },
       logger: { info: () => {}, error: () => {} },
-      config: { workspaceDir: workDir },
+      config: { agents: { defaults: { workspace: workDir } } },
       registerCommand: (opts: any) => { handler = opts.handler; },
       on: () => {},
       registerHook: () => {},
@@ -180,7 +180,7 @@ describe('/status command handler', () => {
     assert.ok(result.text.includes('85%'));
   });
 
-  it('rejects non-admin /status set', async () => {
+  it('rejects non-admin /avatar set', async () => {
     const workDir = ensureFixtureDir();
     const users = { users: [{ userId: 'user1', identity: 'guest' }] };
     writeFileSync(join(workDir, 'ask_me_first/users.json'), JSON.stringify(users));
@@ -190,7 +190,7 @@ describe('/status command handler', () => {
     const mockApi = {
       pluginConfig: { enabled: true, cacheTTL: 0 },
       logger: { info: () => {}, error: () => {} },
-      config: { workspaceDir: workDir },
+      config: { agents: { defaults: { workspace: workDir } } },
       registerCommand: (opts: any) => { handler = opts.handler; },
       on: () => {},
       registerHook: () => {},
@@ -201,7 +201,7 @@ describe('/status command handler', () => {
     assert.ok(result.text.includes('⛔'));
   });
 
-  it('allows admin /status set and writes state file', async () => {
+  it('allows admin /avatar set and writes state file', async () => {
     const workDir = ensureFixtureDir();
     const users = { users: [{ userId: 'admin1', identity: 'admin' }] };
     writeFileSync(join(workDir, 'ask_me_first/users.json'), JSON.stringify(users));
@@ -211,7 +211,7 @@ describe('/status command handler', () => {
     const mockApi = {
       pluginConfig: { enabled: true, cacheTTL: 0 },
       logger: { info: () => {}, error: () => {} },
-      config: { workspaceDir: workDir },
+      config: { agents: { defaults: { workspace: workDir } } },
       registerCommand: (opts: any) => { handler = opts.handler; },
       on: () => {},
       registerHook: () => {},
@@ -228,13 +228,13 @@ describe('/status command handler', () => {
     assert.equal(written.current_mode, 'manual');
   });
 
-  it('returns no-sender error for /status set without senderId', async () => {
+  it('returns no-sender error for /avatar set without senderId', async () => {
     const plugin = await loadPlugin();
     let handler: any;
     const mockApi = {
       pluginConfig: { enabled: true },
       logger: { info: () => {}, error: () => {} },
-      config: { workspaceDir: FIXTURE_DIR },
+      config: { agents: { defaults: { workspace: FIXTURE_DIR } } },
       registerCommand: (opts: any) => { handler = opts.handler; },
       on: () => {},
       registerHook: () => {},
@@ -265,7 +265,7 @@ describe('custom usersJsonPath', () => {
     const mockApi = {
       pluginConfig: { enabled: true, cacheTTL: 0, usersJsonPath: 'custom/people.json' },
       logger: { info: () => {}, error: () => {} },
-      config: { workspaceDir: workDir },
+      config: { agents: { defaults: { workspace: workDir } } },
       registerCommand: (opts: any) => { handler = opts.handler; },
       on: () => {},
       registerHook: () => {},

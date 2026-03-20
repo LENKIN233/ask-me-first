@@ -9,7 +9,7 @@
     },
     "member": {
       "slashCommands": true,
-      "allowedCommands": ["/new", "/status", "/help", "/upgrade"],
+      "allowedCommands": ["/new", "/avatar", "/help", "/upgrade"],
       "escalation": "partial",
       "infoLevel": "internal"
     },

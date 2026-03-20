@@ -8,9 +8,9 @@
 | `ask_me_first/slash_log.json` | 被拒绝的斜杠命令 | 命令被 ACL 拒绝时 |
 | `ask_me_first/avatar_state.json` | 最新状态快照 | avatar-state hook 每 10min |
 
-## /status 命令
+## /avatar 命令
 
-用户在飞书发送 `/status` 可实时查看状态。读取 `avatar_state.json`，格式化输出可用性、模式、置信度、依据。
+用户在飞书发送 `/avatar` 可实时查看状态。读取 `avatar_state.json`，格式化输出可用性、模式、置信度、依据。
 
 ## 工具状态
 

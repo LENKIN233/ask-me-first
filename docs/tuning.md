@@ -61,9 +61,9 @@ ContextTool 自动检测：
 
 模板变量：`{{state}}`、`{{answer}}`、`{{context}}`、`{{topic}}`
 
-## /status 命令
+## /avatar 命令
 
-用户在飞书发送 `/status` 可查看当前 Avatar 状态，包括：
+用户在飞书发送 `/avatar` 可查看当前 Avatar 状态，包括：
 - 可用性、工作模式、可打断度、置信度
 - 检测依据（evidence）
 - 最后更新时间

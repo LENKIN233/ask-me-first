@@ -136,7 +136,7 @@ class AvatarController {
 **输入源**：
 - 本地：`Get-Process`、active window、idle time
 - 飞书：calendar events（未来 1h）、status
-- 显式：`/status` 命令
+- 显式：`/avatar` 命令
 
 **状态模型**：
 ```typescript
@@ -273,7 +273,7 @@ const templates = {
     },
     "member": {
       "slashCommands": true,
-      "allowedCommands": ["/new", "/status", "/help"],
+      "allowedCommands": ["/new", "/avatar", "/help"],
       "escalation": "partial",
       "infoLevel": "internal"
     },
@@ -335,7 +335,7 @@ const templates = {
 - [ ] 升级判断规则生效
 - [ ] 回复模板化，包含状态摘要
 - [ ] 决策日志记录到 `queries.json`
-- [ ] `/status` 斜杠命令返回当前状态
+- [ ] `/avatar` 斜杠命令返回当前状态
 - [ ] 无信息泄露（guest 看不到 internal 内容）
 - [ ] 延迟 < 300ms（不含模型生成）
 

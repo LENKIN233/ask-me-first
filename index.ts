@@ -5,7 +5,7 @@
  * Native plugin architecture — all functionality via OpenClaw plugin API.
  *
  * Registers:
- * - /status command (read current state, admin can set explicit state)
+ * - /avatar command (read current state, admin can set explicit state)
  * - message_received event (trust score tracking + session identity mapping)
  * - agent:bootstrap hook (identity + restricted-mode prompt injection)
  * - before_prompt_build event (avatar state context injection)
@@ -319,7 +319,10 @@ const askMeFirstPlugin = {
       return;
     }
 
-    const getWorkspaceDir = () => api.config?.workspaceDir || process.env.OPENCLAW_WORKSPACE || process.cwd();
+    const getWorkspaceDir = () => {
+      const cfg = api.config as Record<string, any> | undefined;
+      return cfg?.agents?.defaults?.workspace || process.env.OPENCLAW_WORKSPACE || process.cwd();
+    };
 
     // ──────────────────────────────────────────────
     // 0. First-startup initialization
@@ -331,18 +334,18 @@ const askMeFirstPlugin = {
     }
 
     // ──────────────────────────────────────────────
-    // 1. /status command — read avatar state, admin can set explicit state
+    // 1. /avatar command — read avatar state, admin can set explicit state
     // ──────────────────────────────────────────────
     api.registerCommand({
-      name: 'status',
-      description: '📊 查看/设置 Avatar 状态 — /status 或 /status set <online|busy|focus|offline>',
+      name: 'avatar',
+      description: '📊 查看/设置 Avatar 状态 — /avatar 或 /avatar set <online|busy|focus|offline>',
       acceptsArgs: true,
       requireAuth: false, // Allow all users to read status; write is admin-only (checked below)
       handler: (ctx: any) => {
         const workspaceDir = getWorkspaceDir();
         const statePath = join(workspaceDir, 'ask_me_first/avatar_state.json');
 
-        // /status set <state> — admin-only write
+        // /avatar set <state> — admin-only write
         const setMatch = ctx.args?.trim().match(/^set\s+(online|busy|focus|offline)\s*$/i);
         if (setMatch) {
           const senderId = ctx.senderId || ctx.from;
@@ -375,14 +378,14 @@ const askMeFirstPlugin = {
             writeFileSync(statePath, JSON.stringify(explicit, null, 2));
             const avMap: Record<string, string> = { online: '🟢 在线', busy: '🔴 忙碌', focus: '🟡 专注', offline: '⚫ 离线' };
             return {
-              text: `✅ 已手动设定状态: ${avMap[newAvail]}\n\n此状态将持续 4 小时，之后恢复自动检测。\n使用 /status set online 可随时切换。`,
+              text: `✅ 已手动设定状态: ${avMap[newAvail]}\n\n此状态将持续 4 小时，之后恢复自动检测。\n使用 /avatar set online 可随时切换。`,
             };
           } catch (e: any) {
             return { text: `❌ 设定失败: ${e.message}` };
           }
         }
 
-        // /status — read current state
+        // /avatar — read current state
         try {
           if (!existsSync(statePath)) {
             return { text: '📊 暂无状态数据。avatar_state.json 尚未生成，请等待状态检测器运行。' };

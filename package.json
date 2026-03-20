@@ -1,6 +1,6 @@
 {
   "name": "ask-me-first",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Personal work avatar system — identity-aware, state-sensing three-tier escalation for OpenClaw",
   "main": "index.ts",
   "type": "module",
