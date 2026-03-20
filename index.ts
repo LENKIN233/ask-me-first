@@ -132,6 +132,14 @@ let _usersCacheTime = 0;
 
 const _sessionIdentityMap = new Map<string, { identity: string; userId: string; restricted: boolean }>();
 
+/**
+ * Pending /avatar command state, keyed by conversationId.
+ * Set by message_received, consumed by before_prompt_build.
+ * Each entry auto-expires after 30 seconds to prevent stale state.
+ */
+const _pendingAvatarCmd = new Map<string, { args: string; senderId: string; ts: number }>();
+const AVATAR_CMD_TTL = 30_000;
+
 function loadUsers(workspaceDir: string, cacheTTL: number, usersJsonPath = 'ask_me_first/users.json'): UsersData | null {
   const now = Date.now();
   if (_usersCache && (now - _usersCacheTime) < cacheTTL) return _usersCache;
@@ -381,7 +389,7 @@ const askMeFirstPlugin = {
     }
 
     // ──────────────────────────────────────────────
-    // 1. /avatar command — read avatar state, admin can set explicit state
+    // 1. /avatar command — kept for forward-compatibility; actual dispatch via hook (section 3)
     // ──────────────────────────────────────────────
     api.registerCommand({
       name: 'avatar',
@@ -475,6 +483,15 @@ const askMeFirstPlugin = {
       const sessionKey = ctx.channelId || 'default';
       _sessionIdentityMap.set(sessionKey, { identity, userId: senderId, restricted });
 
+      // Detect /avatar command and store for before_prompt_build to consume
+      const content = (event.content || '').trim();
+      if (/^\/avatar\b/i.test(content)) {
+        const args = content.replace(/^\/avatar\s*/i, '').trim();
+        const convId = ctx.conversationId || ctx.channelId || 'default';
+        _pendingAvatarCmd.set(convId, { args, senderId, ts: Date.now() });
+        api.logger.info(`[ask-me-first] /avatar command detected from ${senderId}, queued for prompt injection`);
+      }
+
       if (identity !== 'admin') {
         try {
           const { IdentityResolver } = await import('./src/identity/resolver.ts');
@@ -494,6 +511,154 @@ const askMeFirstPlugin = {
     api.on('before_prompt_build', async (event: any, ctx: any) => {
       const workspaceDir = getWorkspaceDir();
       const contextParts: string[] = [];
+      const convId = ctx?.conversationId || ctx?.channelId || 'default';
+
+      // ── Check for pending /avatar command (set by message_received hook) ──
+      const pending = _pendingAvatarCmd.get(convId);
+      if (pending && (Date.now() - pending.ts) < AVATAR_CMD_TTL) {
+        _pendingAvatarCmd.delete(convId);
+
+        const statePath = join(workspaceDir, 'ask_me_first/avatar_state.json');
+        const setMatch = pending.args.match(/^set\s+(online|busy|focus|offline)\s*$/i);
+
+        if (setMatch) {
+          const { identity } = resolveIdentity(workspaceDir, pending.senderId, config.cacheTTL, config.usersJsonPath);
+          if (identity !== 'admin') {
+            return {
+              appendSystemContext: [
+                '[CRITICAL INSTRUCTION — ask-me-first plugin]',
+                'The user just ran /avatar set but is NOT an admin.',
+                'Reply EXACTLY with: ⛔ 仅管理员可设定显式状态。',
+                'Do NOT add anything else.',
+              ].join('\n'),
+            };
+          }
+
+          const newAvail = setMatch[1].toLowerCase();
+          const intrMap: Record<string, number> = { online: 0.9, busy: 0.2, focus: 0.3, offline: 0 };
+          try {
+            const explicit: AvatarState = {
+              availability: newAvail,
+              interruptibility: intrMap[newAvail] || 0,
+              current_mode: 'manual',
+              confidence: 1.0,
+              explicit: true,
+              explicitSetAt: new Date().toISOString(),
+              evidence: [{
+                type: 'manual',
+                description: `管理员手动设定: ${newAvail}`,
+                timestamp: new Date().toISOString(),
+                source: 'command',
+              }],
+              updatedAt: new Date().toISOString(),
+            };
+            ensureDirForFile(statePath);
+            writeFileSync(statePath, JSON.stringify(explicit, null, 2));
+            const avMap: Record<string, string> = { online: '🟢 在线', busy: '🔴 忙碌', focus: '🟡 专注', offline: '⚫ 离线' };
+            const responseText = `✅ 已手动设定状态: ${avMap[newAvail]}\n\n此状态将持续 4 小时，之后恢复自动检测。\n使用 /avatar set online 可随时切换。`;
+            return {
+              appendSystemContext: [
+                '[CRITICAL INSTRUCTION — ask-me-first plugin]',
+                'The user ran /avatar set and it succeeded. Reply EXACTLY with the following text (no changes):',
+                responseText,
+              ].join('\n'),
+            };
+          } catch (e: any) {
+            return {
+              appendSystemContext: [
+                '[CRITICAL INSTRUCTION — ask-me-first plugin]',
+                `Reply EXACTLY: ❌ 设定失败: ${e.message}`,
+              ].join('\n'),
+            };
+          }
+        }
+
+        // /avatar — read current state
+        let responseText: string;
+        try {
+          if (!existsSync(statePath)) {
+            responseText = '📊 暂无状态数据。avatar_state.json 尚未生成，请等待状态检测器运行。';
+          } else {
+            const st: AvatarState = JSON.parse(readFileSync(statePath, 'utf-8'));
+            const avMap: Record<string, string> = { online: '🟢 在线', busy: '🔴 忙碌', focus: '🟡 专注', offline: '⚫ 离线' };
+            const av = avMap[st.availability] || st.availability;
+            const mode = st.current_mode !== 'unknown' ? st.current_mode : '未知';
+            const conf = Math.round((st.confidence || 0) * 100);
+            const intr = Math.round((st.interruptibility || 0) * 100);
+            const upd = st.updatedAt ? new Date(st.updatedAt).toLocaleString('zh-CN') : '未知';
+            let ev = '';
+            if (st.evidence && st.evidence.length > 0) {
+              ev = '\n\n依据:\n' + st.evidence.map((e) => `• ${e.description}`).join('\n');
+            }
+            const explicitTag = st.explicit ? ' (手动设定)' : '';
+            responseText = `📊 Avatar 状态${explicitTag}\n\n状态: ${av}\n模式: ${mode}\n可打断度: ${intr}%\n置信度: ${conf}%\n更新时间: ${upd}${ev}`;
+          }
+        } catch (e: any) {
+          responseText = `📊 状态读取失败: ${e.message}`;
+        }
+
+        return {
+          appendSystemContext: [
+            '[CRITICAL INSTRUCTION — ask-me-first plugin]',
+            'The user ran /avatar to check status. Reply EXACTLY with the following status text (no changes, no additional commentary):',
+            responseText,
+          ].join('\n'),
+        };
+      }
+
+      // ── Fallback: detect /avatar from prompt text if message_received didn't fire ──
+      const promptText = typeof event?.prompt === 'string' ? event.prompt : '';
+      const messagesText = Array.isArray(event?.messages)
+        ? event.messages.map((m: any) => typeof m?.content === 'string' ? m.content : '').join(' ')
+        : '';
+      const combinedText = (promptText || messagesText).trim();
+
+      if (/^\/avatar\b/i.test(combinedText)) {
+        const args = combinedText.replace(/^\/avatar\s*/i, '').trim();
+        const statePath = join(workspaceDir, 'ask_me_first/avatar_state.json');
+
+        if (/^set\s+(online|busy|focus|offline)\s*$/i.test(args)) {
+          // For set commands via fallback, we don't have senderId — tell the LLM to ask
+          return {
+            appendSystemContext: [
+              '[CRITICAL INSTRUCTION — ask-me-first plugin]',
+              'The user ran /avatar set but identity could not be verified via this path.',
+              'Reply: 请通过消息直接发送 /avatar set <状态> 以便验证身份。',
+            ].join('\n'),
+          };
+        }
+
+        let responseText: string;
+        try {
+          if (!existsSync(statePath)) {
+            responseText = '📊 暂无状态数据。avatar_state.json 尚未生成，请等待状态检测器运行。';
+          } else {
+            const st: AvatarState = JSON.parse(readFileSync(statePath, 'utf-8'));
+            const avMap: Record<string, string> = { online: '🟢 在线', busy: '🔴 忙碌', focus: '🟡 专注', offline: '⚫ 离线' };
+            const av = avMap[st.availability] || st.availability;
+            const mode = st.current_mode !== 'unknown' ? st.current_mode : '未知';
+            const conf = Math.round((st.confidence || 0) * 100);
+            const intr = Math.round((st.interruptibility || 0) * 100);
+            const upd = st.updatedAt ? new Date(st.updatedAt).toLocaleString('zh-CN') : '未知';
+            let ev = '';
+            if (st.evidence && st.evidence.length > 0) {
+              ev = '\n\n依据:\n' + st.evidence.map((e) => `• ${e.description}`).join('\n');
+            }
+            const explicitTag = st.explicit ? ' (手动设定)' : '';
+            responseText = `📊 Avatar 状态${explicitTag}\n\n状态: ${av}\n模式: ${mode}\n可打断度: ${intr}%\n置信度: ${conf}%\n更新时间: ${upd}${ev}`;
+          }
+        } catch (e: any) {
+          responseText = `📊 状态读取失败: ${e.message}`;
+        }
+
+        return {
+          appendSystemContext: [
+            '[CRITICAL INSTRUCTION — ask-me-first plugin]',
+            'The user ran /avatar to check status. Reply EXACTLY with the following status text (no changes, no additional commentary):',
+            responseText,
+          ].join('\n'),
+        };
+      }
 
       // ── 3a. Avatar state context ──
       try {
@@ -603,6 +768,5 @@ const askMeFirstPlugin = {
   },
 };
 
-// Export ensureRuntimeDirs and ensureDirForFile for testing
-export { ensureRuntimeDirs, ensureDirForFile };
+export { ensureRuntimeDirs, ensureDirForFile, _pendingAvatarCmd, AVATAR_CMD_TTL };
 export default askMeFirstPlugin;

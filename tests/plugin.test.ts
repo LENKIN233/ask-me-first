@@ -570,3 +570,228 @@ describe('first-startup initialization', () => {
     rmSync(freshDir, { recursive: true, force: true });
   });
 });
+
+describe('/avatar hook-based dispatch (before_prompt_build)', () => {
+  beforeEach(() => {
+    cleanFixtureDir();
+    ensureFixtureDir();
+  });
+
+  it('message_received stores pending /avatar command for before_prompt_build', async () => {
+    const mod = await import('../index.ts');
+    const plugin = mod.default;
+    const { _pendingAvatarCmd } = mod;
+    _pendingAvatarCmd.clear();
+
+    let messageHandler: any;
+    const mockApi = {
+      pluginConfig: { enabled: true, cacheTTL: 0 },
+      logger: { info: () => {}, error: () => {} },
+      config: { agents: { defaults: { workspace: FIXTURE_DIR } } },
+      registerCommand: () => {},
+      on: (evt: string, fn: any) => { if (evt === 'message_received') messageHandler = fn; },
+      registerHook: () => {},
+      registerService: () => {},
+    };
+    plugin.register(mockApi);
+
+    await messageHandler({ from: 'user1', content: '/avatar' }, { channelId: 'ch1', conversationId: 'conv1' });
+
+    assert.ok(_pendingAvatarCmd.has('conv1'), 'pending command should be stored');
+    assert.equal(_pendingAvatarCmd.get('conv1')!.senderId, 'user1');
+    assert.equal(_pendingAvatarCmd.get('conv1')!.args, '');
+    _pendingAvatarCmd.clear();
+  });
+
+  it('message_received stores /avatar set args correctly', async () => {
+    const mod = await import('../index.ts');
+    const plugin = mod.default;
+    const { _pendingAvatarCmd } = mod;
+    _pendingAvatarCmd.clear();
+
+    let messageHandler: any;
+    const mockApi = {
+      pluginConfig: { enabled: true, cacheTTL: 0 },
+      logger: { info: () => {}, error: () => {} },
+      config: { agents: { defaults: { workspace: FIXTURE_DIR } } },
+      registerCommand: () => {},
+      on: (evt: string, fn: any) => { if (evt === 'message_received') messageHandler = fn; },
+      registerHook: () => {},
+      registerService: () => {},
+    };
+    plugin.register(mockApi);
+
+    await messageHandler({ from: 'admin1', content: '/avatar set busy' }, { channelId: 'ch1', conversationId: 'conv2' });
+
+    assert.ok(_pendingAvatarCmd.has('conv2'));
+    assert.equal(_pendingAvatarCmd.get('conv2')!.args, 'set busy');
+    _pendingAvatarCmd.clear();
+  });
+
+  it('before_prompt_build returns avatar status via appendSystemContext when pending /avatar exists', async () => {
+    const workDir = ensureFixtureDir();
+    const state = {
+      availability: 'online',
+      interruptibility: 0.9,
+      current_mode: 'idle',
+      confidence: 0.95,
+      updatedAt: '2026-01-15T10:00:00.000Z',
+    };
+    writeFileSync(join(workDir, 'ask_me_first/avatar_state.json'), JSON.stringify(state));
+
+    const mod = await import('../index.ts');
+    const plugin = mod.default;
+    const { _pendingAvatarCmd } = mod;
+    _pendingAvatarCmd.clear();
+    _pendingAvatarCmd.set('conv1', { args: '', senderId: 'user1', ts: Date.now() });
+
+    let promptHandler: any;
+    const mockApi = {
+      pluginConfig: { enabled: true, cacheTTL: 0 },
+      logger: { info: () => {}, error: () => {} },
+      config: { agents: { defaults: { workspace: workDir } } },
+      registerCommand: () => {},
+      on: (evt: string, fn: any) => { if (evt === 'before_prompt_build') promptHandler = fn; },
+      registerHook: () => {},
+      registerService: () => {},
+    };
+    plugin.register(mockApi);
+
+    const result = await promptHandler({ prompt: '/avatar' }, { channelId: 'ch1', conversationId: 'conv1' });
+
+    assert.ok(result, 'should return a result');
+    assert.ok(result.appendSystemContext, 'should return appendSystemContext');
+    assert.ok(result.appendSystemContext.includes('🟢 在线'), 'should contain online status');
+    assert.ok(result.appendSystemContext.includes('CRITICAL INSTRUCTION'), 'should contain critical instruction');
+    assert.ok(!_pendingAvatarCmd.has('conv1'), 'pending command should be consumed');
+  });
+
+  it('before_prompt_build handles /avatar set by admin via pending command', async () => {
+    const workDir = ensureFixtureDir();
+    const users = { users: [{ userId: 'admin1', identity: 'admin' }] };
+    writeFileSync(join(workDir, 'ask_me_first/users.json'), JSON.stringify(users));
+
+    const mod = await import('../index.ts');
+    const plugin = mod.default;
+    const { _pendingAvatarCmd } = mod;
+    _pendingAvatarCmd.clear();
+    _pendingAvatarCmd.set('conv1', { args: 'set focus', senderId: 'admin1', ts: Date.now() });
+
+    let promptHandler: any;
+    const mockApi = {
+      pluginConfig: { enabled: true, cacheTTL: 0 },
+      logger: { info: () => {}, error: () => {} },
+      config: { agents: { defaults: { workspace: workDir } } },
+      registerCommand: () => {},
+      on: (evt: string, fn: any) => { if (evt === 'before_prompt_build') promptHandler = fn; },
+      registerHook: () => {},
+      registerService: () => {},
+    };
+    plugin.register(mockApi);
+
+    const result = await promptHandler({ prompt: '/avatar set focus' }, { channelId: 'ch1', conversationId: 'conv1' });
+
+    assert.ok(result.appendSystemContext.includes('✅'), 'should confirm set');
+    assert.ok(result.appendSystemContext.includes('🟡 专注'), 'should include focus status');
+
+    const written = JSON.parse(readFileSync(join(workDir, 'ask_me_first/avatar_state.json'), 'utf-8'));
+    assert.equal(written.availability, 'focus');
+    assert.equal(written.explicit, true);
+  });
+
+  it('before_prompt_build rejects /avatar set by non-admin', async () => {
+    const workDir = ensureFixtureDir();
+    const users = { users: [{ userId: 'guest1', identity: 'guest' }] };
+    writeFileSync(join(workDir, 'ask_me_first/users.json'), JSON.stringify(users));
+
+    const mod = await import('../index.ts');
+    const plugin = mod.default;
+    const { _pendingAvatarCmd } = mod;
+    _pendingAvatarCmd.clear();
+    _pendingAvatarCmd.set('conv1', { args: 'set busy', senderId: 'guest1', ts: Date.now() });
+
+    let promptHandler: any;
+    const mockApi = {
+      pluginConfig: { enabled: true, cacheTTL: 0 },
+      logger: { info: () => {}, error: () => {} },
+      config: { agents: { defaults: { workspace: workDir } } },
+      registerCommand: () => {},
+      on: (evt: string, fn: any) => { if (evt === 'before_prompt_build') promptHandler = fn; },
+      registerHook: () => {},
+      registerService: () => {},
+    };
+    plugin.register(mockApi);
+
+    const result = await promptHandler({ prompt: '/avatar set busy' }, { channelId: 'ch1', conversationId: 'conv1' });
+
+    assert.ok(result.appendSystemContext.includes('⛔'), 'should include access denied marker');
+  });
+
+  it('before_prompt_build fallback detects /avatar from prompt text', async () => {
+    const workDir = ensureFixtureDir();
+    const state = {
+      availability: 'busy',
+      interruptibility: 0.2,
+      current_mode: 'meeting',
+      confidence: 0.7,
+      updatedAt: '2026-01-15T14:00:00.000Z',
+    };
+    writeFileSync(join(workDir, 'ask_me_first/avatar_state.json'), JSON.stringify(state));
+
+    const mod = await import('../index.ts');
+    const plugin = mod.default;
+    const { _pendingAvatarCmd } = mod;
+    _pendingAvatarCmd.clear();
+
+    let promptHandler: any;
+    const mockApi = {
+      pluginConfig: { enabled: true, cacheTTL: 0 },
+      logger: { info: () => {}, error: () => {} },
+      config: { agents: { defaults: { workspace: workDir } } },
+      registerCommand: () => {},
+      on: (evt: string, fn: any) => { if (evt === 'before_prompt_build') promptHandler = fn; },
+      registerHook: () => {},
+      registerService: () => {},
+    };
+    plugin.register(mockApi);
+
+    const result = await promptHandler({ prompt: '/avatar' }, { channelId: 'ch1', conversationId: 'conv_no_pending' });
+
+    assert.ok(result, 'fallback should return a result');
+    assert.ok(result.appendSystemContext.includes('🔴 忙碌'), 'should contain busy status from fallback');
+  });
+
+  it('expired pending /avatar command falls through to fallback', async () => {
+    const workDir = ensureFixtureDir();
+    const state = {
+      availability: 'offline',
+      interruptibility: 0,
+      current_mode: 'sleep',
+      confidence: 1.0,
+      updatedAt: '2026-01-15T03:00:00.000Z',
+    };
+    writeFileSync(join(workDir, 'ask_me_first/avatar_state.json'), JSON.stringify(state));
+
+    const mod = await import('../index.ts');
+    const plugin = mod.default;
+    const { _pendingAvatarCmd, AVATAR_CMD_TTL } = mod;
+    _pendingAvatarCmd.clear();
+    _pendingAvatarCmd.set('conv1', { args: '', senderId: 'user1', ts: Date.now() - AVATAR_CMD_TTL - 1000 });
+
+    let promptHandler: any;
+    const mockApi = {
+      pluginConfig: { enabled: true, cacheTTL: 0 },
+      logger: { info: () => {}, error: () => {} },
+      config: { agents: { defaults: { workspace: workDir } } },
+      registerCommand: () => {},
+      on: (evt: string, fn: any) => { if (evt === 'before_prompt_build') promptHandler = fn; },
+      registerHook: () => {},
+      registerService: () => {},
+    };
+    plugin.register(mockApi);
+
+    const result = await promptHandler({ prompt: '/avatar' }, { channelId: 'ch1', conversationId: 'conv1' });
+
+    assert.ok(result.appendSystemContext.includes('⚫ 离线'), 'should use fallback path and show offline');
+  });
+});
