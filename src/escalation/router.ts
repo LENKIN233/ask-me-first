@@ -3,6 +3,7 @@ import { Triggers } from './triggers.js';
 import { Permissions, InfoLevel } from '../identity/permissions.js';
 import { AppState } from '../state/state.js';
 import { UserEntry } from '../identity/types.js';
+import fs from 'fs';
 
 interface RuleConfig {
   id: string;
@@ -28,7 +29,6 @@ export class EscalationRouter {
 
   async loadRules(configPath: string): Promise<void> {
     try {
-      const fs = require('fs');
       const raw = fs.readFileSync(configPath, 'utf-8');
       const file: RulesFile = JSON.parse(raw);
 

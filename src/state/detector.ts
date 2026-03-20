@@ -1,12 +1,15 @@
 import { AppState, defaultState, Evidence } from './state.js';
 import { PresenceTool } from '../tools/presence.js';
 import { CalendarTool } from '../tools/calendar.js';
+import fs from 'fs';
+import path from 'path';
 
 export interface StateDetectorConfig {
   enablePresence: boolean;
   enableCalendar: boolean;
   calendarLookaheadHours: number;
   cacheTTL: number;
+  workspaceDir?: string;
 }
 
 export class StateDetector {
@@ -56,9 +59,8 @@ export class StateDetector {
 
   private readExplicitState(): AppState | null {
     try {
-      const fs = require('fs');
-      const path = require('path');
-      const statePath = path.join(process.env.OPENCLAW_WORKSPACE || process.cwd(), 'ask_me_first/avatar_state.json');
+      const workspaceDir = this.config.workspaceDir || process.env.OPENCLAW_WORKSPACE || process.cwd();
+      const statePath = path.join(workspaceDir, 'ask_me_first/avatar_state.json');
       if (!fs.existsSync(statePath)) return null;
       const raw = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
       if (!raw.explicit || !raw.explicitSetAt) return null;

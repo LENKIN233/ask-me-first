@@ -2,7 +2,7 @@
 
 ## 一个将"个人工作沟通层"接口化的智能数字分身系统
 
-> **参赛项目说明书 v1.0**
+> **参赛项目说明书 v2.0**
 
 ---
 
@@ -114,14 +114,15 @@ Ask My Avatar First 给个人建立了一个全新的接口层：
 
 ---
 
-### 💡 亮点 5：完整的安全与权限体系——双层防御 + 四级信息可见性
+### 💡 亮点 5：完整的安全与权限体系——插件原生防御 + 四级信息可见性
 
-#### 双层安全架构
+#### 纯插件安全架构
 
 | 层级 | 防御机制 | 作用 |
 |------|---------|------|
-| **Gateway 层** | Bundle 热补丁 + 命令拦截器 | 在请求到达 Agent 之前，直接阻断未授权的斜杠命令 |
-| **Agent 层** | 身份注入 + 受限模式提示词 | 对非管理员用户注入角色约束，Guest 用户额外注入操作限制 |
+| **Hook 层** | `agent:bootstrap` 钩子 + 身份注入 | 在 Agent 启动时注入用户角色约束和受限模式提示词 |
+| **事件层** | `message_received` 事件监听 | 实时追踪会话身份映射，维护动态信任分数 |
+| **上下文层** | `before_prompt_build` 事件 | 将当前 Avatar 状态自动注入 Prompt 上下文 |
 
 #### 四级信息可见性控制
 
@@ -298,39 +299,72 @@ Escalate 模板: "已升级给本人，他将尽快回复。（原因：{{reason
 
 ---
 
-### 3.3 Gateway 安全补丁 — 零信任命令拦截
+### 3.3 纯插件架构 — 零侵入式全生命周期管理
 
-独创的 **Gateway Bundle 热补丁技术**，在不修改 OpenClaw 源码的前提下实现命令级访问控制：
+v2.0 采用 **纯插件架构**，所有功能通过 OpenClaw Plugin API 实现，无需外部 Hook 目录或 Gateway 补丁：
 
 ```
-请求流向：
-飞书消息 → Gateway → [热补丁拦截点] → handleCommands()
-                          ↓
-                    身份校验 + 命令白名单
-                          ↓
-                   ✅ 放行  /  ⛔ 阻断 + 审计日志
+Plugin Entry (index.ts) 注册的全部能力：
+
+┌──────────────────────────────────────────────────────────────────┐
+│  1. /status 命令     → registerCommand()                         │
+│     读取/设置 Avatar 状态，管理员可手动覆盖                         │
+│                                                                  │
+│  2. message_received → api.on('message_received')                │
+│     实时追踪会话身份 + 更新信任分数                                 │
+│                                                                  │
+│  3. agent:bootstrap  → api.registerHook(['agent:bootstrap'])     │
+│     注入身份文件 + 受限模式提示词 + 初始化 AvatarController         │
+│                                                                  │
+│  4. before_prompt_build → api.on('before_prompt_build')          │
+│     将 Avatar 实时状态注入 Prompt 上下文                           │
+│                                                                  │
+│  5. 后台服务          → registerService()                         │
+│     每 10 分钟刷新状态 + 每小时衰减信任分                          │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-- **5 秒内存缓存**：避免每次请求都读磁盘
-- **自动化注入**：一键 `inject.bat` 完成备份 → 注入 → 重启
-- **防重复注入**：自动检测已有补丁，避免重复注入
-- **安全回滚**：注入失败自动从 `.backup` 恢复
-- **完整审计**：每次被拒绝的命令都记录到 `slash_log.json`
+**设计优势**：
+- **一键安装**：无需手动注入或修补框架文件
+- **安全升级**：框架升级不会破坏插件功能
+- **可移植性**：任意 OpenClaw 实例均可直接加载
 
 ---
 
-### 3.4 Hook 系统 — 无侵入式生命周期注入
+### 3.4 插件模块结构
 
 ```
-hooks/
-├── ask-me-first/
-│   ├── handler.ts          → agent:bootstrap 时注入 AvatarController
-│   └── message-received.ts → 记录交互历史，更新信任分数
-└── avatar-state/
-    └── updater.ts          → 每 10 分钟自动刷新状态缓存
+ask-me-first/
+├── index.ts                   → 插件入口：注册命令、钩子、服务
+├── src/
+│   ├── controller.ts          → AvatarController 分身控制中枢
+│   ├── state/
+│   │   ├── detector.ts        → 多源状态融合引擎
+│   │   ├── cache.ts           → TTL 内存缓存
+│   │   └── state.ts           → 状态类型与默认值
+│   ├── identity/
+│   │   ├── resolver.ts        → 身份解析 + 信任分管理
+│   │   ├── permissions.ts     → 四级信息可见性
+│   │   ├── relationship.ts    → 关系分析器
+│   │   └── types.ts           → 身份类型定义
+│   ├── escalation/
+│   │   ├── router.ts          → 三级升级决策引擎
+│   │   ├── triggers.ts        → 触发条件识别
+│   │   ├── rules.ts           → 规则加载
+│   │   └── types.ts           → 决策类型定义
+│   ├── generation/
+│   │   └── formatter.ts       → 模板化回复生成器
+│   └── tools/
+│       ├── presence.ts        → 本地活跃度检测（Windows API）
+│       ├── calendar.ts        → 飞书日历集成
+│       ├── context.ts         → 项目上下文采集
+│       └── memory.ts          → 长期记忆读取
+├── tests/                     → 单元测试 + 冒烟测试
+├── config/                    → JSON 配置（可热加载）
+└── openclaw.plugin.json       → 插件元数据与配置 Schema
 ```
 
-利用 OpenClaw 的 Hook 机制实现**零侵入式扩展**：不修改任何框架代码，通过生命周期事件自动注入分身逻辑。
+所有功能通过插件入口 `index.ts` 统一注册，无需任何框架外部文件。
 
 ---
 
@@ -341,7 +375,7 @@ hooks/
 | 运行时 | TypeScript + Node.js | 类型安全，全异步 |
 | Agent 框架 | OpenClaw | 飞书原生集成 |
 | 状态感知 | Windows P/Invoke + Feishu Open API | 多源融合 |
-| 安全层 | Gateway Bundle Patch + Hook 注入 | 双层防御 |
+| 安全层 | Plugin API (Hook + Event + Service) | 纯插件防御 |
 | 决策引擎 | 自研规则引擎 + 条件表达式 | 可热加载 |
 | 缓存 | 内存 TTL Cache | 多级缓存策略 |
 | 审计 | JSON 日志 + 查询追踪 | 全链路可观测 |
@@ -357,8 +391,8 @@ hooks/
 | 源代码文件 | 20+ TypeScript 文件 |
 | 配置文件 | 6 个 JSON 配置（可热加载）|
 | 工具集成 | 4 个（Calendar / Presence / Context / Memory）|
-| 安全层 | 双层（Gateway Patch + Agent Hook）|
-| 测试覆盖 | 冒烟测试 + 3 场景端到端验证 |
+| 安全层 | 纯插件（Hook 注入 + 事件监听 + 受限模式提示词）|
+| 测试覆盖 | 12 项单元测试 + 冒烟测试 + 端到端验证 |
 | 文档 | 部署指南 / 调优手册 / 运维监控 / 集成说明 |
 
 ---
@@ -435,7 +469,7 @@ Phase 4: PaaI 平台 — Personal-as-an-Interface 开放平台
 |------|------|
 | **范式创新** | "个人即接口"是全新概念，无直接竞品 |
 | **决策引擎** | 三级升级 + 四级可见性 + 动态信任，非简单 prompt 工程可复制 |
-| **工程深度** | Gateway 热补丁 + Hook 注入 + 多源融合，系统级工程能力 |
+| **工程深度** | 纯插件架构 + 多源状态融合 + 动态规则引擎，系统级工程能力 |
 | **数据飞轮** | 使用越多 → 信任分越准 → 决策越好 → 用户越依赖 |
 
 ---
@@ -462,4 +496,4 @@ Phase 4: PaaI 平台 — Personal-as-an-Interface 开放平台
 ---
 
 *项目基于 OpenClaw Agent 框架开发，已在飞书生产环境运行。*
-*全部源代码约 2000+ 行 TypeScript，模块化设计，可独立扩展。*
+*全部源代码约 1500+ 行 TypeScript，纯插件架构，模块化设计，可独立扩展。*

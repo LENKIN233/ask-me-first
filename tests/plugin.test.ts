@@ -29,7 +29,7 @@ describe('parseConfig', () => {
     assert.equal(config.cacheTTL, 5000);
     assert.equal(config.stateRefreshIntervalMs, 600000);
     assert.equal(config.trustDecayRate, 0.01);
-    assert.equal(config.enablePresence, true);
+    assert.equal(config.enablePresence, process.platform === 'win32');
     assert.equal(config.enableCalendar, false);
     assert.equal(config.calendarLookaheadHours, 1);
     assert.equal(config.usersJsonPath, 'ask_me_first/users.json');

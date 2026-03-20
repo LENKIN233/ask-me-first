@@ -5,7 +5,19 @@ export interface PresenceInfo {
 }
 
 export class PresenceTool {
+  /**
+   * Check if presence detection is supported on the current platform.
+   * Currently only Windows is supported (requires PowerShell + Win32 API).
+   */
+  static isSupported(): boolean {
+    return process.platform === 'win32';
+  }
+
   async getPresence(): Promise<PresenceInfo> {
+    if (!PresenceTool.isSupported()) {
+      return { windowTitle: '', processName: '', idleTime: 0 };
+    }
+
     const psScript = `
       Add-Type @"
         using System;

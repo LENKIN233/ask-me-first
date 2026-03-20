@@ -136,6 +136,7 @@ async function refreshAvatarState(workspaceDir: string, config: AskMeFirstConfig
       enableCalendar: config.enableCalendar,
       calendarLookaheadHours: config.calendarLookaheadHours,
       cacheTTL: config.stateRefreshIntervalMs,
+      workspaceDir,
     });
 
     const state = await detector.refresh();
@@ -189,7 +190,7 @@ function parseConfig(value: unknown): AskMeFirstConfig {
     stateRefreshIntervalMs: typeof raw.stateRefreshIntervalMs === 'number' ? raw.stateRefreshIntervalMs : 600000,
     trustDecayRate: typeof raw.trustDecayRate === 'number' ? raw.trustDecayRate : 0.01,
     cacheTTL: typeof raw.cacheTTL === 'number' ? raw.cacheTTL : 5000,
-    enablePresence: typeof raw.enablePresence === 'boolean' ? raw.enablePresence : true,
+    enablePresence: typeof raw.enablePresence === 'boolean' ? raw.enablePresence : process.platform === 'win32',
     enableCalendar: typeof raw.enableCalendar === 'boolean' ? raw.enableCalendar : false,
     calendarLookaheadHours: typeof raw.calendarLookaheadHours === 'number' ? raw.calendarLookaheadHours : 1,
   };

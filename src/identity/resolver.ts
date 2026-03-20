@@ -5,6 +5,7 @@
 
 import { UserEntry, IdentityConfig, defaultRelationship, defaultInfoLevel } from './types.js';
 import { StateCache } from '../state/cache.js';
+import fs from 'fs';
 
 export class IdentityResolver {
   private config: IdentityConfig | null = null;
@@ -58,7 +59,6 @@ export class IdentityResolver {
 
   private readFile(filePath: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      const fs = require('fs');
       fs.readFile(filePath, 'utf-8', (err: any, data: string) => {
         if (err) reject(err);
         else resolve(data);
@@ -80,7 +80,6 @@ export class IdentityResolver {
   }
 
   private writeFile(filePath: string, content: string): void {
-    const fs = require('fs');
     fs.writeFileSync(filePath, content, 'utf-8');
   }
 

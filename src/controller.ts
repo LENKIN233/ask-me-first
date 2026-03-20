@@ -10,6 +10,8 @@ import { UserEntry } from './identity/types.js';
 import { MemoryTool } from './tools/memory.js';
 import { ContextTool } from './tools/context.js';
 import { CalendarTool, CalendarEvent } from './tools/calendar.js';
+import fs from 'fs';
+import path from 'path';
 
 export interface AvatarControllerConfig {
   workspaceDir: string;
@@ -42,7 +44,7 @@ export class AvatarController {
   private initialized = false;
 
   constructor(private config: AvatarControllerConfig) {
-    this.stateDetector = new StateDetector(config.stateConfig);
+    this.stateDetector = new StateDetector({ ...config.stateConfig, workspaceDir: config.workspaceDir });
     this.identityResolver = new IdentityResolver(config.workspaceDir);
     this.escalationRouter = new EscalationRouter();
     this.replyFormatter = new ReplyFormatter();
@@ -54,7 +56,6 @@ export class AvatarController {
 
   async init(): Promise<void> {
     if (this.initialized) return;
-    const path = require('path');
     const rulesPath = path.join(this.config.workspaceDir, 'ask_me_first/config/escalationRules.json');
     await this.escalationRouter.loadRules(rulesPath);
     this.initialized = true;
@@ -128,7 +129,7 @@ export class AvatarController {
 
     if (Permissions.canAnswer(identity.infoLevel, InfoLevel.Internal)) {
       try {
-        const memPath = require('path').join(this.config.workspaceDir, 'MEMORY.md');
+        const memPath = path.join(this.config.workspaceDir, 'MEMORY.md');
         const mem = await this.memoryTool.readMemory(memPath);
         if (mem) {
           const maxLen = trustLevel === 'high' ? 500 : trustLevel === 'medium' ? 200 : 100;
@@ -193,8 +194,6 @@ export class AvatarController {
     decision: Decision
   ): void {
     try {
-      const fs = require('fs');
-      const path = require('path');
       const logPath = path.join(this.config.workspaceDir, 'ask_me_first/escalations.json');
       let log = { entries: [] as any[] };
       if (fs.existsSync(logPath)) {
