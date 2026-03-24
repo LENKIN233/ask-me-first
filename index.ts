@@ -1,8 +1,10 @@
 /**
- * ask-me-first — OpenClaw Native Plugin
+ * ask-me-first — OpenClaw Plugin (SDK v2026.3.22+)
  *
- * Personal work avatar system: identity-aware, state-sensing three-tier escalation.
- * Native plugin architecture — all functionality via OpenClaw plugin API.
+ * 我的工作接口、第一接触面、降低沟通成本减少打断的工作分身。
+ *
+ * Identity-aware, state-sensing three-tier escalation avatar system.
+ * Uses definePluginEntry from the new OpenClaw Plugin SDK.
  *
  * Registers:
  * - /avatar command (read current state, admin can set explicit state)
@@ -16,21 +18,17 @@
  * - State detection (foreground window) is Windows-only.
  */
 
+import { definePluginEntry } from 'openclaw/plugin-sdk/plugin-entry';
 import { join, dirname } from 'path';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'fs';
+import { existsSync, readFileSync, mkdirSync, copyFileSync } from 'fs';
 
-// ── src/ module imports (avatar decision chain) ──
+// ── src/ module imports ──
 import { EscalationRouter } from './src/escalation/router.ts';
-import { EscalateLevel } from './src/escalation/types.ts';
-import type { MessageContext } from './src/escalation/types.ts';
-import { Permissions, InfoLevel } from './src/identity/permissions.ts';
 import { RelationshipAnalyzer } from './src/identity/relationship.ts';
-import { defaultInfoLevel, defaultRelationship } from './src/identity/types.ts';
-import type { UserEntry as SrcUserEntry } from './src/identity/types.ts';
-import { stateDescription, defaultState } from './src/state/state.ts';
-import type { AppState as SrcAppState } from './src/state/state.ts';
 import { ContextTool } from './src/tools/context.ts';
 import { MemoryTool } from './src/tools/memory.ts';
+import { buildPromptContext } from './src/decision-chain.ts';
+import { atomicWriteFileSync } from './src/utils/safe-write.ts';
 
 // ── Types ──
 
@@ -43,6 +41,10 @@ interface AskMeFirstConfig {
   enablePresence: boolean;
   enableCalendar: boolean;
   calendarLookaheadHours: number;
+  feishuAppId: string;
+  feishuAppSecret: string;
+  feishuCalendarId: string;
+  autoAdminRegistration: boolean;
 }
 
 interface UserEntry {
@@ -73,13 +75,15 @@ interface AvatarState {
 
 // ── Runtime directory initialization ──
 
-/**
- * Resolve the plugin's own source directory.
- * This is used to find template files bundled with the plugin.
- */
-function getPluginDir(): string {
-  // import.meta.dirname is available in ESM with tsx/node 21+
-  // Fallback to __dirname-like resolution
+function getPluginDir(api?: any): string {
+  // Prefer new SDK runtime API
+  if (api?.runtime?.agent?.resolveAgentDir) {
+    try {
+      const dir = api.runtime.agent.resolveAgentDir('ask-me-first');
+      if (dir && existsSync(dir)) return dir;
+    } catch { /* fallback below */ }
+  }
+  // Fallback: resolve from import.meta.url (ESM with tsx/node 21+)
   try {
     return dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1'));
   } catch {
@@ -94,8 +98,8 @@ function getPluginDir(): string {
  * Template files from the plugin source are copied to the workspace
  * only if they don't already exist (never overwrites user config).
  */
-function ensureRuntimeDirs(workspaceDir: string, config: AskMeFirstConfig, logger: { info: (...args: any[]) => void; error: (...args: any[]) => void }): void {
-  const pluginDir = getPluginDir();
+function ensureRuntimeDirs(workspaceDir: string, config: AskMeFirstConfig, logger: { info: (...args: any[]) => void; error: (...args: any[]) => void }, api?: any): void {
+  const pluginDir = getPluginDir(api);
   const runtimeDir = join(workspaceDir, 'ask_me_first');
   const configDir = join(runtimeDir, 'config');
   const promptsDir = join(runtimeDir, 'prompts');
@@ -223,7 +227,7 @@ function autoRegisterAdmin(
     adminEntry.updatedAt = new Date().toISOString();
     if (data.updatedAt) data.updatedAt = adminEntry.updatedAt;
 
-    writeFileSync(p, JSON.stringify(data, null, 2), 'utf-8');
+    atomicWriteFileSync(p, JSON.stringify(data, null, 2));
 
     // Invalidate cache so resolveIdentity picks up the change immediately
     _usersCache = null;
@@ -312,6 +316,9 @@ async function refreshAvatarState(workspaceDir: string, config: AskMeFirstConfig
       calendarLookaheadHours: config.calendarLookaheadHours,
       cacheTTL: config.stateRefreshIntervalMs,
       workspaceDir,
+      feishuAppId: config.feishuAppId,
+      feishuAppSecret: config.feishuAppSecret,
+      feishuCalendarId: config.feishuCalendarId,
     });
 
     const state = await detector.refresh();
@@ -332,7 +339,7 @@ async function refreshAvatarState(workspaceDir: string, config: AskMeFirstConfig
     }
 
     ensureDirForFile(outPath);
-    writeFileSync(outPath, JSON.stringify({
+    atomicWriteFileSync(outPath, JSON.stringify({
       ...state,
       updatedAt: new Date().toISOString(),
     }, null, 2));
@@ -370,15 +377,19 @@ function parseConfig(value: unknown): AskMeFirstConfig {
     enablePresence: typeof raw.enablePresence === 'boolean' ? raw.enablePresence : false,
     enableCalendar: typeof raw.enableCalendar === 'boolean' ? raw.enableCalendar : false,
     calendarLookaheadHours: typeof raw.calendarLookaheadHours === 'number' ? raw.calendarLookaheadHours : 1,
+    feishuAppId: typeof raw.feishuAppId === 'string' ? raw.feishuAppId : '',
+    feishuAppSecret: typeof raw.feishuAppSecret === 'string' ? raw.feishuAppSecret : '',
+    feishuCalendarId: typeof raw.feishuCalendarId === 'string' ? raw.feishuCalendarId : 'primary',
+    autoAdminRegistration: typeof raw.autoAdminRegistration === 'boolean' ? raw.autoAdminRegistration : true,
   };
 }
 
-// ── Plugin definition ──
+// ── Plugin definition (SDK v2026.3.22+) ──
 
-const askMeFirstPlugin = {
+export default definePluginEntry({
   id: 'ask-me-first',
   name: 'Ask Me First',
-  description: 'Personal work avatar — identity-aware, state-sensing three-tier escalation',
+  description: '我的工作接口、第一接触面、降低沟通成本减少打断的工作分身',
 
   configSchema: {
     parse: parseConfig,
@@ -427,6 +438,12 @@ const askMeFirstPlugin = {
     }
 
     const getWorkspaceDir = () => {
+      if (api.runtime?.agent?.resolveAgentWorkspaceDir) {
+        try {
+          const dir = api.runtime.agent.resolveAgentWorkspaceDir();
+          if (dir) return dir;
+        } catch { /* fallback below */ }
+      }
       const cfg = api.config as Record<string, any> | undefined;
       return cfg?.agents?.defaults?.workspace || process.env.OPENCLAW_WORKSPACE || process.cwd();
     };
@@ -435,7 +452,7 @@ const askMeFirstPlugin = {
     // 0. First-startup initialization
     // ──────────────────────────────────────────────
     try {
-      ensureRuntimeDirs(getWorkspaceDir(), config, api.logger);
+      ensureRuntimeDirs(getWorkspaceDir(), config, api.logger, api);
     } catch (e) {
       api.logger.error('[ask-me-first] Runtime dir init failed:', e);
     }
@@ -497,7 +514,7 @@ const askMeFirstPlugin = {
               updatedAt: new Date().toISOString(),
             };
             ensureDirForFile(statePath);
-            writeFileSync(statePath, JSON.stringify(explicit, null, 2));
+            atomicWriteFileSync(statePath, JSON.stringify(explicit, null, 2));
             const avMap: Record<string, string> = { online: '🟢 在线', busy: '🔴 忙碌', focus: '🟡 专注', offline: '⚫ 离线' };
             return {
               text: `✅ 已手动设定状态: ${avMap[newAvail]}\n\n此状态将持续 4 小时，之后恢复自动检测。\n使用 /avatar set online 可随时切换。`,
@@ -542,7 +559,7 @@ const askMeFirstPlugin = {
       if (!senderId) return;
 
       const usersData = loadUsers(workspaceDir, config.cacheTTL, config.usersJsonPath);
-      if (!hasValidAdmin(usersData)) {
+      if (config.autoAdminRegistration && !hasValidAdmin(usersData)) {
         autoRegisterAdmin(workspaceDir, senderId, config.usersJsonPath, api.logger);
       }
 
@@ -620,7 +637,7 @@ const askMeFirstPlugin = {
               updatedAt: new Date().toISOString(),
             };
             ensureDirForFile(statePath);
-            writeFileSync(statePath, JSON.stringify(explicit, null, 2));
+            atomicWriteFileSync(statePath, JSON.stringify(explicit, null, 2));
             const avMap: Record<string, string> = { online: '🟢 在线', busy: '🔴 忙碌', focus: '🟡 专注', offline: '⚫ 离线' };
             const responseText = `✅ 已手动设定状态: ${avMap[newAvail]}\n\n此状态将持续 4 小时，之后恢复自动检测。\n使用 /avatar set online 可随时切换。`;
             return {
@@ -750,164 +767,32 @@ const askMeFirstPlugin = {
           isRestricted = r.restricted;
         }
 
-        const usersData = loadUsers(workspaceDir, config.cacheTTL, config.usersJsonPath);
-        const rawUser = usersData?.users?.find((u) => u.userId === userId);
-        const userEntry: SrcUserEntry = rawUser ? {
-          userId: rawUser.userId,
-          identity: (rawUser.identity as 'admin' | 'member' | 'guest') || 'guest',
-          infoLevel: (rawUser as any).infoLevel || undefined,
-          relationship: rawUser.relationship && typeof rawUser.relationship === 'object'
-            ? rawUser.relationship as any
-            : undefined,
-        } : {
-          userId: userId || 'unknown',
-          identity: 'guest' as const,
-        };
-
-        const infoLevel = userEntry.infoLevel || defaultInfoLevel(userEntry.identity);
-        const relationship = userEntry.relationship || defaultRelationship();
-        const trustLevel = _relationshipAnalyzer?.trustLevel(userEntry) || 'low';
-
-        let currentState: SrcAppState;
-        try {
-          const statePath = join(workspaceDir, 'ask_me_first/avatar_state.json');
-          if (existsSync(statePath)) {
-            const raw = JSON.parse(readFileSync(statePath, 'utf-8'));
-            currentState = {
-              availability: raw.availability || 'offline',
-              interruptibility: raw.interruptibility ?? 0,
-              current_mode: raw.current_mode || 'unknown',
-              confidence: raw.confidence ?? 0,
-              evidence: raw.evidence || [],
-              updatedAt: raw.updatedAt || new Date().toISOString(),
-            };
-          } else {
-            currentState = defaultState();
-          }
-        } catch {
-          currentState = defaultState();
-        }
-
         const messageText = typeof event?.prompt === 'string' ? event.prompt :
           (Array.isArray(event?.messages) ? event.messages.map((m: any) => m?.content || '').join(' ') : '');
-        const msgCtx: MessageContext = { text: messageText, senderId: userId };
 
-        const identityForDecision = { ...userEntry, infoLevel, relationship };
-        const decision = _escalationRouter?.decide(msgCtx, identityForDecision, currentState) ||
-          { level: EscalateLevel.Partial, reason: 'router unavailable', suggestedAction: 'reply' as const, priority: 'normal' as const };
+        const parts = await buildPromptContext(
+          {
+            escalationRouter: _escalationRouter!,
+            relationshipAnalyzer: _relationshipAnalyzer!,
+            contextTool: _contextTool!,
+            memoryTool: _memoryTool!,
+          },
+          {
+            workspaceDir,
+            identity,
+            userId,
+            isRestricted,
+            messageText,
+            personaPrompt: personaRaw,
+            restrictedPrompt: loadRestrictedPrompt(workspaceDir),
+            usersJsonPath: config.usersJsonPath,
+            cacheTTL: config.cacheTTL,
+            loadUsers,
+            logger: api.logger,
+          },
+        );
 
-        const avMap: Record<string, string> = { online: '🟢', busy: '🔴', focus: '🟡', offline: '⚫' };
-        const availEmoji = avMap[currentState.availability] || '❓';
-        const stateDesc = stateDescription(currentState);
-        const evidenceText = currentState.evidence.length > 0
-          ? currentState.evidence.map(e => e.description).join('; ')
-          : 'no evidence available';
-
-        const persona = personaRaw
-          .replace(/\{\{ownerName\}\}/g, 'Owner')
-          .replace(/\{\{availability\}\}/g, currentState.availability)
-          .replace(/\{\{availabilityEmoji\}\}/g, availEmoji)
-          .replace(/\{\{currentMode\}\}/g, currentState.current_mode)
-          .replace(/\{\{interruptibility\}\}/g, String(Math.round(currentState.interruptibility * 100)))
-          .replace(/\{\{confidence\}\}/g, String(Math.round(currentState.confidence * 100)))
-          .replace(/\{\{evidence\}\}/g, evidenceText)
-          .replace(/\{\{senderIdentity\}\}/g, identity)
-          .replace(/\{\{senderRole\}\}/g, identity)
-          .replace(/\{\{trustLevel\}\}/g, trustLevel)
-          .replace(/\{\{infoLevel\}\}/g, infoLevel)
-          .replace(/\{\{decisionLevel\}\}/g, decision.level)
-          .replace(/\{\{decisionReason\}\}/g, decision.reason)
-          .replace(/\{\{stateDescription\}\}/g, stateDesc)
-          .replace(/\{\{expectedResponse\}\}/g, currentState.availability === 'online' ? '很快可以回复' : '稍后回复')
-          .replace(/\{\{version\}\}/g, '1.1.0');
-
-        contextParts.push(persona);
-
-        if (identity === 'admin') {
-          contextParts.push([
-            '[Decision: FULL ACCESS — admin user]',
-            `Current state: ${availEmoji} ${stateDesc}`,
-            'You have full access. Respond comprehensively.',
-          ].join('\n'));
-
-          try {
-            if (_contextTool) {
-              const projCtx = await _contextTool.getContext(workspaceDir);
-              if (projCtx.recentCommits.length > 0 || projCtx.currentTask) {
-                const ctxLines = ['[Project Context]'];
-                if (projCtx.currentTask) ctxLines.push(`Current task: ${projCtx.currentTask}`);
-                if (projCtx.recentCommits.length > 0) ctxLines.push(`Recent commits:\n${projCtx.recentCommits.join('\n')}`);
-                if (projCtx.openFiles.length > 0) ctxLines.push(`Open files: ${projCtx.openFiles.join(', ')}`);
-                contextParts.push(ctxLines.join('\n'));
-              }
-            }
-          } catch { /* non-critical */ }
-
-          try {
-            if (_memoryTool) {
-              const memPath = join(workspaceDir, 'MEMORY.md');
-              const memory = await _memoryTool.readMemory(memPath);
-              if (memory) {
-                contextParts.push(`[Memory Context]\n${memory.slice(0, 2000)}`);
-              }
-            }
-          } catch { /* non-critical */ }
-
-        } else if (decision.level === EscalateLevel.Answer) {
-          contextParts.push([
-            `[Decision: ANSWER — ${decision.reason}]`,
-            `Current state: ${availEmoji} ${stateDesc}`,
-            `Your info access level: ${infoLevel}. Only share information at or below this level.`,
-            'Respond helpfully within your access level.',
-          ].join('\n'));
-
-        } else if (decision.level === EscalateLevel.Partial) {
-          contextParts.push([
-            `[Decision: PARTIAL — ${decision.reason}]`,
-            `Current state: ${availEmoji} ${stateDesc}`,
-            `Your info access level: ${infoLevel}. Provide only public/basic information.`,
-            'After providing what you can, suggest the person contact the owner directly.',
-          ].join('\n'));
-
-          if (isRestricted) {
-            contextParts.push(loadRestrictedPrompt(workspaceDir));
-          }
-
-        } else if (decision.level === EscalateLevel.Escalate) {
-          contextParts.push([
-            `[Decision: ESCALATE — ${decision.reason}]`,
-            `Current state: ${availEmoji} ${stateDesc}`,
-            'This message requires the owner\'s personal attention.',
-            'Tell the user this has been flagged for the owner. Provide a timeline expectation based on current state.',
-            'Do NOT attempt to answer the underlying question.',
-          ].join('\n'));
-
-          if (isRestricted) {
-            contextParts.push(loadRestrictedPrompt(workspaceDir));
-          }
-
-          try {
-            const escalationLogPath = join(workspaceDir, 'ask_me_first/escalations.json');
-            let escalations: any[] = [];
-            if (existsSync(escalationLogPath)) {
-              try { escalations = JSON.parse(readFileSync(escalationLogPath, 'utf-8')); } catch { escalations = []; }
-            }
-            escalations.push({
-              timestamp: new Date().toISOString(),
-              senderId: userId,
-              identity,
-              reason: decision.reason,
-              messagePreview: messageText.slice(0, 200),
-              state: currentState.availability,
-            });
-            if (escalations.length > 100) escalations = escalations.slice(-100);
-            ensureDirForFile(escalationLogPath);
-            writeFileSync(escalationLogPath, JSON.stringify(escalations, null, 2));
-          } catch (e) {
-            api.logger.error('[ask-me-first] escalation log failed:', e);
-          }
-        }
-
+        contextParts.push(...parts);
       } catch (e) {
         api.logger.error('[ask-me-first] avatar decision chain failed:', e);
         try {
@@ -915,11 +800,11 @@ const askMeFirstPlugin = {
           if (_sessionIdentityMap.has(sessionKey)) {
             const s = _sessionIdentityMap.get(sessionKey)!;
             if (s.identity !== 'admin' && s.identity !== 'unknown') {
-              contextParts.push(`[User Identity — fallback]\nIdentity: ${s.identity}\nThe current user is NOT an administrator.`);
+              contextParts.push(`[User Identity -- fallback]\nIdentity: ${s.identity}\nThe current user is NOT an administrator.`);
               if (s.restricted) contextParts.push(loadRestrictedPrompt(workspaceDir));
             }
           }
-        } catch { /* absolute fallback */ }
+        } catch { }
       }
 
       if (contextParts.length > 0) {
@@ -968,9 +853,8 @@ const askMeFirstPlugin = {
       },
     });
 
-    api.logger.info('[ask-me-first] Plugin registered successfully');
+    api.logger.info('[ask-me-first] Plugin registered successfully (SDK v2026.3.22+)');
   },
-};
+});
 
 export { ensureRuntimeDirs, ensureDirForFile, _pendingAvatarCmd, AVATAR_CMD_TTL };
-export default askMeFirstPlugin;

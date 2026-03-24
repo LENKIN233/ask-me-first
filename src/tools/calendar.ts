@@ -1,6 +1,6 @@
 /**
  * 飞书日历工具
- * 需要环境变量: FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_CALENDAR_ID (可选)
+ * Credentials are passed via plugin config (feishuAppId / feishuAppSecret).
  * 无凭证时优雅降级返回空数组
  */
 
@@ -47,13 +47,13 @@ export class CalendarTool {
   private available: boolean;
 
   constructor(config?: { appId?: string; appSecret?: string; calendarId?: string }) {
-    this.appId = config?.appId || process.env.FEISHU_APP_ID || '';
-    this.appSecret = config?.appSecret || process.env.FEISHU_APP_SECRET || '';
-    this.calendarId = config?.calendarId || process.env.FEISHU_CALENDAR_ID || 'primary';
+    this.appId = config?.appId || '';
+    this.appSecret = config?.appSecret || '';
+    this.calendarId = config?.calendarId || 'primary';
     this.available = !!(this.appId && this.appSecret);
 
     if (!this.available) {
-      console.warn('[CalendarTool] 飞书凭证未配置（FEISHU_APP_ID/FEISHU_APP_SECRET），日历功能已禁用');
+      console.warn('[CalendarTool] 飞书凭证未配置（请在插件配置中设置 feishuAppId / feishuAppSecret），日历功能已禁用');
     }
   }
 

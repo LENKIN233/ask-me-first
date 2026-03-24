@@ -1,5 +1,25 @@
 {
   "id": "ask-me-first",
+  "sdk": ">=2026.3.22",
+  "entry": "./index.ts",
+  "capabilities": {
+    "filesystem": {
+      "write": true,
+      "scope": "workspace/ask_me_first/",
+      "reason": "Persists avatar state, user identity, escalation logs, and runtime config within the plugin's own workspace subdirectory."
+    },
+    "system": {
+      "exec": true,
+      "optional": true,
+      "gatedBy": "enablePresence",
+      "reason": "When enablePresence is true, runs PowerShell commands to detect the foreground window (Windows only). Also reads recent git commits for admin context. Both are opt-in and timeout after 3s."
+    },
+    "network": {
+      "optional": true,
+      "gatedBy": "enableCalendar",
+      "reason": "When enableCalendar is true, calls Feishu Calendar API (open.feishu.cn) to check upcoming events for state detection. Requires feishuAppId and feishuAppSecret in plugin config."
+    }
+  },
   "uiHints": {
     "usersJsonPath": {
       "label": "Users JSON Path",
@@ -33,6 +53,25 @@
       "label": "Calendar Lookahead (hours)",
       "help": "How far ahead to check calendar. Default: 1",
       "advanced": true
+    },
+    "feishuAppId": {
+      "label": "Feishu App ID",
+      "help": "Feishu/Lark app ID for calendar integration. Required when enableCalendar is true.",
+      "advanced": true
+    },
+    "feishuAppSecret": {
+      "label": "Feishu App Secret",
+      "help": "Feishu/Lark app secret for calendar integration. Required when enableCalendar is true.",
+      "advanced": true
+    },
+    "feishuCalendarId": {
+      "label": "Feishu Calendar ID",
+      "help": "Feishu calendar ID. Default: 'primary'.",
+      "advanced": true
+    },
+    "autoAdminRegistration": {
+      "label": "Auto-Register First Admin",
+      "help": "Automatically register the first message sender as admin when users.json only has placeholder entries. Set false to require manual admin setup."
     }
   },
   "configSchema": {
@@ -76,6 +115,22 @@
         "minimum": 1,
         "maximum": 24,
         "default": 1
+      },
+      "feishuAppId": {
+        "type": "string",
+        "default": ""
+      },
+      "feishuAppSecret": {
+        "type": "string",
+        "default": ""
+      },
+      "feishuCalendarId": {
+        "type": "string",
+        "default": "primary"
+      },
+      "autoAdminRegistration": {
+        "type": "boolean",
+        "default": true
       }
     }
   }

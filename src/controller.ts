@@ -10,6 +10,7 @@ import { UserEntry } from './identity/types.js';
 import { MemoryTool } from './tools/memory.js';
 import { ContextTool } from './tools/context.js';
 import { CalendarTool, CalendarEvent } from './tools/calendar.js';
+import { atomicWriteFileSync } from './utils/safe-write.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -21,6 +22,9 @@ export interface AvatarControllerConfig {
     enableCalendar: boolean;
     calendarLookaheadHours: number;
     cacheTTL: number;
+    feishuAppId?: string;
+    feishuAppSecret?: string;
+    feishuCalendarId?: string;
   };
 }
 
@@ -55,7 +59,11 @@ export class AvatarController {
     this.relationshipAnalyzer = new RelationshipAnalyzer();
     this.memoryTool = new MemoryTool();
     this.contextTool = new ContextTool();
-    this.calendarTool = new CalendarTool();
+    this.calendarTool = new CalendarTool({
+      appId: config.stateConfig.feishuAppId,
+      appSecret: config.stateConfig.feishuAppSecret,
+      calendarId: config.stateConfig.feishuCalendarId,
+    });
   }
 
   async init(): Promise<void> {
@@ -214,7 +222,7 @@ export class AvatarController {
       });
       const logDir = path.dirname(logPath);
       if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-      fs.writeFileSync(logPath, JSON.stringify(log, null, 2));
+      atomicWriteFileSync(logPath, JSON.stringify(log, null, 2));
     } catch (e) {
       console.error('[AvatarController] Failed to write escalation log:', e);
     }

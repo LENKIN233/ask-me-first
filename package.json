@@ -1,7 +1,7 @@
 {
   "name": "ask-me-first",
-  "version": "1.1.0",
-  "description": "Personal work avatar system — identity-aware, state-sensing three-tier escalation for OpenClaw",
+  "version": "2.0.1",
+  "description": "我的工作接口、第一接触面、降低沟通成本减少打断的工作分身",
   "main": "index.ts",
   "type": "module",
   "license": "MIT",
@@ -30,9 +30,9 @@
     "restricted-mode-prompt.txt"
   ],
   "openclaw": {
-    "extensions": [
-      "./index.ts"
-    ]
+    "extensions": ["./index.ts"],
+    "entry": "./index.ts",
+    "sdk": ">=2026.3.22"
   },
   "keywords": [
     "openclaw",
@@ -47,5 +47,8 @@
   ],
   "devDependencies": {
     "tsx": "^4.21.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.3.22"
   }
 }

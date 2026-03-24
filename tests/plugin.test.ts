@@ -33,6 +33,10 @@ describe('parseConfig', () => {
     assert.equal(config.enableCalendar, false);
     assert.equal(config.calendarLookaheadHours, 1);
     assert.equal(config.usersJsonPath, 'ask_me_first/users.json');
+    assert.equal(config.feishuAppId, '');
+    assert.equal(config.feishuAppSecret, '');
+    assert.equal(config.feishuCalendarId, 'primary');
+    assert.equal(config.autoAdminRegistration, true);
   });
 
   it('returns defaults for non-object input', async () => {
@@ -54,6 +58,10 @@ describe('parseConfig', () => {
       enableCalendar: true,
       calendarLookaheadHours: 4,
       usersJsonPath: 'custom/path.json',
+      feishuAppId: 'cli_test123',
+      feishuAppSecret: 'secret_test456',
+      feishuCalendarId: 'cal_custom',
+      autoAdminRegistration: false,
     });
     assert.equal(config.enabled, false);
     assert.equal(config.cacheTTL, 10000);
@@ -63,6 +71,10 @@ describe('parseConfig', () => {
     assert.equal(config.enableCalendar, true);
     assert.equal(config.calendarLookaheadHours, 4);
     assert.equal(config.usersJsonPath, 'custom/path.json');
+    assert.equal(config.feishuAppId, 'cli_test123');
+    assert.equal(config.feishuAppSecret, 'secret_test456');
+    assert.equal(config.feishuCalendarId, 'cal_custom');
+    assert.equal(config.autoAdminRegistration, false);
   });
 
   it('ignores unknown keys', async () => {
@@ -483,6 +495,36 @@ describe('auto-register first user as admin', () => {
     const persisted = JSON.parse(readFileSync(join(workDir, 'ask_me_first/users.json'), 'utf-8'));
     const admin = persisted.users.find((u: any) => u.identity === 'admin');
     assert.equal(admin.userId, 'ou_first_user', 'first user should remain admin after second user message');
+  });
+
+  it('does NOT auto-register when autoAdminRegistration is false', async () => {
+    const workDir = ensureFixtureDir();
+    const templateUsers = {
+      version: '1.1',
+      users: [
+        { userId: 'ou_your_admin_id_here', identity: 'admin' },
+      ],
+    };
+    writeFileSync(join(workDir, 'ask_me_first/users.json'), JSON.stringify(templateUsers, null, 2));
+
+    const plugin = await loadPlugin();
+    let messageHandler: any;
+    const mockApi = {
+      pluginConfig: { enabled: true, cacheTTL: 0, autoAdminRegistration: false },
+      logger: { info: () => {}, error: () => {} },
+      config: { agents: { defaults: { workspace: workDir } } },
+      registerCommand: () => {},
+      on: (evt: string, fn: any) => { if (evt === 'message_received') messageHandler = fn; },
+      registerHook: () => {},
+      registerService: () => {},
+    };
+    plugin.register(mockApi);
+
+    await messageHandler({ from: 'ou_real_user_abc' }, { channelId: 'ch1' });
+
+    const persisted = JSON.parse(readFileSync(join(workDir, 'ask_me_first/users.json'), 'utf-8'));
+    const admin = persisted.users.find((u: any) => u.identity === 'admin');
+    assert.equal(admin.userId, 'ou_your_admin_id_here', 'placeholder should NOT be replaced when autoAdminRegistration=false');
   });
 
   it('detects various placeholder patterns', async () => {

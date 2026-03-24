@@ -19,6 +19,63 @@ interface RulesFile {
   rules: RuleConfig[];
 }
 
+type ConditionContext = { state: any; identity: any; msg: MessageContext };
+
+const COMPARISON_RE = /^([a-zA-Z_][\w]*(?:\.[a-zA-Z_][\w]*)*)(?:\s*(===|!==|==|!=|<=|>=|<|>)\s*(.+))?$/;
+
+function resolvePath(obj: any, path: string): unknown {
+  let cur = obj;
+  for (const seg of path.split('.')) {
+    if (cur == null || typeof cur !== 'object') return undefined;
+    cur = cur[seg];
+  }
+  return cur;
+}
+
+function parseLiteral(raw: string): unknown {
+  const trimmed = raw.trim();
+  if (trimmed === 'true') return true;
+  if (trimmed === 'false') return false;
+  if (trimmed === 'null') return null;
+  if (trimmed === 'undefined') return undefined;
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed);
+  const strMatch = trimmed.match(/^(['"])(.*)(\1)$/);
+  if (strMatch) return strMatch[2];
+  return trimmed;
+}
+
+function evalSafeCondition(expr: string, ctx: ConditionContext): boolean {
+  const match = expr.trim().match(COMPARISON_RE);
+  if (!match) return false;
+
+  const [, propPath, operator, rhsRaw] = match;
+
+  const rootName = propPath.split('.')[0];
+  const root = rootName === 'state' ? ctx.state
+    : rootName === 'identity' ? ctx.identity
+    : rootName === 'msg' ? ctx.msg
+    : undefined;
+  if (root === undefined) return false;
+
+  const lhs = resolvePath(root, propPath.slice(rootName.length + 1)) ?? root;
+
+  if (!operator) return Boolean(lhs);
+
+  const rhs = parseLiteral(rhsRaw);
+
+  switch (operator) {
+    case '===': return lhs === rhs;
+    case '!==': return lhs !== rhs;
+    case '==':  return lhs == rhs;
+    case '!=':  return lhs != rhs;
+    case '<':   return (lhs as number) < (rhs as number);
+    case '>':   return (lhs as number) > (rhs as number);
+    case '<=':  return (lhs as number) <= (rhs as number);
+    case '>=':  return (lhs as number) >= (rhs as number);
+    default:    return false;
+  }
+}
+
 export class EscalationRouter {
   private rules: EscalationRule[] = [];
   private configLoaded = false;
@@ -27,7 +84,7 @@ export class EscalationRouter {
     this.initDefaultRules();
   }
 
-  async loadRules(configPath: string): Promise<void> {
+  loadRules(configPath: string): void {
     try {
       const raw = fs.readFileSync(configPath, 'utf-8');
       const file: RulesFile = JSON.parse(raw);
@@ -40,12 +97,7 @@ export class EscalationRouter {
             if (!r.pattern.some(p => lower.includes(p.toLowerCase()))) return false;
           }
           if (r.condition) {
-            try {
-              const fn = new Function('state', 'identity', 'msg', `return (${r.condition});`);
-              if (!fn(state, identity, msg)) return false;
-            } catch {
-              return false;
-            }
+            if (!evalSafeCondition(r.condition, { state, identity, msg })) return false;
           }
           return true;
         },
@@ -54,7 +106,6 @@ export class EscalationRouter {
         priority: r.priority
       }));
 
-      // Config rules take precedence, then defaults fill in
       this.rules = [...configRules, ...this.rules.filter(def =>
         !configRules.some(cr => cr.id === def.id)
       )];

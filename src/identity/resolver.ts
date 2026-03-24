@@ -5,6 +5,7 @@
 
 import { UserEntry, IdentityConfig, defaultRelationship, defaultInfoLevel } from './types.js';
 import { StateCache } from '../state/cache.js';
+import { atomicWriteFileSync } from '../utils/safe-write.js';
 import fs from 'fs';
 
 export class IdentityResolver {
@@ -91,7 +92,7 @@ export class IdentityResolver {
   }
 
   private writeFile(filePath: string, content: string): void {
-    fs.writeFileSync(filePath, content, 'utf-8');
+    atomicWriteFileSync(filePath, content);
   }
 
   async reload(): Promise<void> {

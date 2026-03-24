@@ -10,16 +10,24 @@ export interface StateDetectorConfig {
   calendarLookaheadHours: number;
   cacheTTL: number;
   workspaceDir?: string;
+  feishuAppId?: string;
+  feishuAppSecret?: string;
+  feishuCalendarId?: string;
 }
 
 export class StateDetector {
   private config: StateDetectorConfig;
   private cache: { state: AppState; fetchedAt: number } | null = null;
   private presenceTool = new PresenceTool();
-  private calendarTool = new CalendarTool();
+  private calendarTool: CalendarTool;
 
   constructor(config: StateDetectorConfig) {
     this.config = config;
+    this.calendarTool = new CalendarTool({
+      appId: config.feishuAppId,
+      appSecret: config.feishuAppSecret,
+      calendarId: config.feishuCalendarId,
+    });
   }
 
   async getState(): Promise<AppState> {
