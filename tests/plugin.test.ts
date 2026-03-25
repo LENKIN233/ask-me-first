@@ -131,8 +131,8 @@ describe('register', () => {
     };
     plugin.register(mockApi);
     assert.equal(registered.command, 1, 'should register 1 command (/avatar)');
-    assert.equal(registered.on, 2, 'should register 2 event handlers (message_received + before_prompt_build)');
-    assert.equal(registered.hook, 0, 'should register 0 raw hooks (agent:bootstrap removed)');
+    assert.equal(registered.on, 3, 'should register 3 event handlers (message_received + message_sending + before_prompt_build)');
+    assert.equal(registered.hook, 1, 'should register 1 hook (inbound_claim)');
     assert.equal(registered.service, 1, 'should register 1 service (state refresh)');
   });
 });

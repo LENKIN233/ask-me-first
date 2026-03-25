@@ -3,6 +3,10 @@
   "sdk": ">=2026.3.22",
   "entry": "./index.ts",
   "capabilities": {
+    "hooks": {
+      "inbound_claim": true,
+      "reason": "Intercepts and auto-replies to low-risk incoming messages before they reach the main agent, using the persona avatar system."
+    },
     "filesystem": {
       "write": true,
       "scope": "workspace/ask_me_first/",

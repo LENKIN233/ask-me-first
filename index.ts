@@ -29,6 +29,12 @@ import { ContextTool } from './src/tools/context.ts';
 import { MemoryTool } from './src/tools/memory.ts';
 import { buildPromptContext } from './src/decision-chain.ts';
 import { atomicWriteFileSync } from './src/utils/safe-write.ts';
+import { classifyMessage } from './src/persona/classifier.ts';
+import { parsePersona } from './src/persona/schema.ts';
+import type { Persona } from './src/persona/schema.ts';
+import { renderPersonaPrompt, renderClaimPrompt } from './src/persona/renderer.ts';
+import type { RuntimeContext } from './src/persona/renderer.ts';
+import { PersonaLearner } from './src/persona/learner.ts';
 
 // ── Types ──
 
@@ -119,6 +125,7 @@ function ensureRuntimeDirs(workspaceDir: string, config: AskMeFirstConfig, logge
     { src: join(pluginDir, 'config', 'identities.json'), dest: join(configDir, 'identities.json') },
     { src: join(pluginDir, 'config', 'templates.json'), dest: join(configDir, 'templates.json') },
     { src: join(pluginDir, 'prompts', 'persona-system-prompt.md'), dest: join(promptsDir, 'persona-system-prompt.md') },
+    { src: join(pluginDir, 'config', 'persona-seed.json'), dest: join(runtimeDir, 'persona.json') },
   ];
 
   for (const { src, dest } of templates) {
@@ -168,6 +175,28 @@ const _sessionIdentityMap = new Map<string, { identity: string; userId: string; 
  */
 const _pendingAvatarCmd = new Map<string, { args: string; senderId: string; ts: number }>();
 const AVATAR_CMD_TTL = 30_000;
+
+let _personaCache: Persona | null = null;
+let _personaCacheTime = 0;
+const PERSONA_CACHE_TTL = 15_000;
+
+let _personaLearner: PersonaLearner | null = null;
+
+function loadPersonaJson(workspaceDir: string): Persona {
+  const now = Date.now();
+  if (_personaCache && (now - _personaCacheTime) < PERSONA_CACHE_TTL) return _personaCache;
+  try {
+    const p = join(workspaceDir, 'ask_me_first/persona.json');
+    if (existsSync(p)) {
+      _personaCache = parsePersona(readFileSync(p, 'utf-8'));
+      _personaCacheTime = now;
+      return _personaCache;
+    }
+  } catch { /* fallback */ }
+  _personaCache = parsePersona({});
+  _personaCacheTime = now;
+  return _personaCache;
+}
 
 function loadUsers(workspaceDir: string, cacheTTL: number, usersJsonPath = 'ask_me_first/users.json'): UsersData | null {
   const now = Date.now();
@@ -461,6 +490,7 @@ export default definePluginEntry({
     _relationshipAnalyzer = new RelationshipAnalyzer();
     _contextTool = new ContextTool();
     _memoryTool = new MemoryTool();
+    _personaLearner = new PersonaLearner(getWorkspaceDir());
 
     try {
       const rulesPath = join(getWorkspaceDir(), 'ask_me_first/config/escalationRules.json');
@@ -585,6 +615,147 @@ export default definePluginEntry({
         } catch (e) {
           api.logger.error('[ask-me-first] trust update failed:', e);
         }
+      }
+    });
+
+    // ──────────────────────────────────────────────
+    // 2b. inbound_claim — auto-claim low-risk messages before main agent
+    // ──────────────────────────────────────────────
+    api.registerHook('inbound_claim', async (event: any, ctx: any) => {
+      try {
+        const workspaceDir = getWorkspaceDir();
+        const content = (event.content || event.body || '').trim();
+        if (!content) return;
+
+        const senderId = event.senderId || ctx?.senderId || '';
+        if (!senderId) return;
+
+        const { identity } = resolveIdentity(workspaceDir, senderId, config.cacheTTL, config.usersJsonPath);
+        const persona = loadPersonaJson(workspaceDir);
+        const classification = classifyMessage(content, persona, identity);
+
+        if (!classification.canAutoClaim) return;
+
+        const statePath = join(workspaceDir, 'ask_me_first/avatar_state.json');
+        let availability = 'offline';
+        let currentMode = 'unknown';
+        let stateDescription = '状态未知';
+        try {
+          if (existsSync(statePath)) {
+            const st = JSON.parse(readFileSync(statePath, 'utf-8'));
+            availability = st.availability || 'offline';
+            currentMode = st.current_mode || 'unknown';
+            const stateMap: Record<string, string> = {
+              online: '在线，可以沟通',
+              busy: '忙碌中',
+              focus: '深度工作中，不方便打断',
+              offline: '不在线',
+            };
+            stateDescription = stateMap[availability] || '状态未知';
+          }
+        } catch { /* use defaults */ }
+
+        const ownerName = 'Owner';
+        const claimPrompt = renderClaimPrompt(
+          persona,
+          { ownerName, availability, currentMode, stateDescription },
+          content,
+          classification.reason,
+        );
+
+        let replyText: string;
+        try {
+          if (api.runtime?.llm?.generateText) {
+            replyText = await api.runtime.llm.generateText({
+              system: claimPrompt,
+              prompt: content,
+              maxTokens: 200,
+            });
+          } else if (api.runtime?.completion) {
+            const result = await api.runtime.completion({
+              messages: [
+                { role: 'system', content: claimPrompt },
+                { role: 'user', content },
+              ],
+              max_tokens: 200,
+            });
+            replyText = result?.content || result?.text || '';
+          } else {
+            replyText = persona.patterns.common_replies[availability]
+              ?.replace(/\{\{ownerName\}\}/g, ownerName) || '你好，请稍等。';
+          }
+        } catch (e) {
+          api.logger.error('[ask-me-first] claim LLM call failed:', e);
+          replyText = persona.patterns.common_replies[availability]
+            ?.replace(/\{\{ownerName\}\}/g, ownerName) || '你好，请稍等。';
+        }
+
+        if (!replyText || replyText.trim().length === 0) return;
+
+        try {
+          if (api.runtime?.channel?.reply) {
+            await api.runtime.channel.reply(ctx, replyText.trim());
+          } else if (api.runtime?.sendMessage) {
+            await api.runtime.sendMessage({
+              channelId: ctx.channelId,
+              conversationId: ctx.conversationId,
+              content: replyText.trim(),
+            });
+          } else {
+            api.logger.error('[ask-me-first] no reply mechanism available for inbound_claim');
+            return;
+          }
+        } catch (e) {
+          api.logger.error('[ask-me-first] claim reply delivery failed:', e);
+          return;
+        }
+
+        if (_personaLearner) {
+          const shouldDistill = _personaLearner.observe(
+            content, replyText.trim(), identity, classification.intent, true,
+          );
+          if (shouldDistill) {
+            try { _personaLearner.distill(); } catch { /* non-critical */ }
+          }
+        }
+
+        api.logger.info(`[ask-me-first] claimed message: intent=${classification.intent} reason="${classification.reason}"`);
+        return { handled: true };
+      } catch (e) {
+        api.logger.error('[ask-me-first] inbound_claim handler error:', e);
+      }
+    }, { name: 'ask-me-first-claim', description: 'Auto-claim low-risk messages via persona avatar' });
+
+    // ──────────────────────────────────────────────
+    // 2c. message_sending — observe owner replies for persona learning
+    // ──────────────────────────────────────────────
+    api.on('message_sending', async (event: any, ctx: any) => {
+      if (!_personaLearner) return;
+      try {
+        const workspaceDir = getWorkspaceDir();
+        const outboundText = (event.content || event.text || '').trim();
+        if (!outboundText) return;
+
+        const convId = ctx?.conversationId || ctx?.channelId;
+        if (!convId) return;
+
+        const sessionKey = ctx?.channelId || 'default';
+        const sessionInfo = _sessionIdentityMap.get(sessionKey);
+        if (!sessionInfo) return;
+        if (sessionInfo.identity === 'admin') return;
+
+        const inboundText = typeof event?.replyTo === 'string' ? event.replyTo : '';
+        const persona = loadPersonaJson(workspaceDir);
+        const classification = classifyMessage(inboundText || 'unknown', persona, sessionInfo.identity);
+
+        const shouldDistill = _personaLearner.observe(
+          inboundText, outboundText, sessionInfo.identity, classification.intent, false,
+        );
+        if (shouldDistill) {
+          try { _personaLearner.distill(); } catch { /* non-critical */ }
+        }
+      } catch (e) {
+        api.logger.error('[ask-me-first] persona observation failed:', e);
       }
     });
 

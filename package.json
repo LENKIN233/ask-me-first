@@ -1,6 +1,6 @@
 {
   "name": "ask-me-first",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "description": "我的工作接口、第一接触面、降低沟通成本减少打断的工作分身",
   "main": "index.ts",
   "type": "module",
@@ -32,7 +32,10 @@
   "openclaw": {
     "extensions": ["./index.ts"],
     "entry": "./index.ts",
-    "sdk": ">=2026.3.22"
+    "sdk": ">=2026.3.22",
+    "compat": {
+      "pluginApi": ">=2026.3.22"
+    }
   },
   "keywords": [
     "openclaw",
