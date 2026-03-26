@@ -3,6 +3,10 @@ slash_log.json
 queries.json
 avatar_state.json
 escalations.json
+persona_events.jsonl
+
+# Runtime workspace (created at startup)
+ask_me_first/
 
 # Node
 node_modules/

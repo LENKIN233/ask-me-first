@@ -1,206 +1,146 @@
 [English](README.md) | [中文](README.zh-CN.md)
 
-# Ask Me First — Digital Work Avatar System
+# Ask Me First — Digital Work Avatar
 
-> Your digital proxy and first contact surface — let them talk to my avatar first.
+> Your work interface, first contact surface — reducing communication cost, protecting flow state.
 
-A production-ready digital work avatar system for [OpenClaw](https://github.com/openclaw). It creates a digital proxy that handles colleague inquiries with identity-aware, state-sensing three-tier escalation. Every interaction is processed through a deterministic decision chain to ensure appropriate context sharing and interruption management.
+Ask Me First is a digital proxy that acts as your professional avatar. It intercepts incoming messages to respond autonomously when you're busy or focused, learning your unique communication style over time. By filtering low-risk interruptions and managing expectations based on your real-time availability, it protects your focus while ensuring your contacts receive immediate, context-aware responses.
 
-## What It Does
+## What's New in v2.1.0
 
-When someone messages you, they talk to your avatar first. The avatar:
+*   **Persona Learning System**: Automatically observes your real message exchanges to distill your communication style and preferences.
+*   **Inbound Claim Interception**: High-performance hook that allows the avatar to "claim" and reply to simple messages (greetings, acknowledgments) before they even reach your main agent.
+*   **Conversation-Based Style Learning**: Learns how you interact with specific people to refine its response accuracy.
+*   **Per-User Persona**: Support for `persona.json` in the workspace, allowing deep customization of the avatar's personality and rules.
 
-1. **Identifies** the sender from `users.json` or session history
-2. **Detects** your current state (coding, in meeting, or deep work)
-3. **Decides** the optimal response via the **Avatar Decision Chain**:
-   - ✅ **Answer directly** — routine questions using rich persona context
-   - ⚠️ **Partial answer** — provides filtered info based on identity and trust
-   - 🔺 **Escalate to you** — logs urgent matters to `escalations.json` for manual review
+## How It Works
 
-## Architecture (v1.1.0)
+### 1. Inbound claim flow
+The avatar acts as a high-speed filter for simple interactions.
 
 ```
-Message → OpenClaw (before_prompt_build) → Avatar Decision Chain → Final Prompt → Reply
+Message → inbound_claim hook → classify → auto-claim low-risk → LLM reply as avatar → { handled: true }
+```
 
-Avatar Decision Chain (v1.1.0):
-├── 1. Load Persona        — Injects customizable prompts/persona-system-prompt.md
-├── 2. Resolve Identity    — Maps sender to Admin/Member/Guest levels
-├── 3. Sense State         — Reads current availability and interruptibility
-├── 4. Escalation Routing  — Determines if current query requires human intervention
-└── 5. Context Injection   — Mixes project context (git/TODO) with user memory (MEMORY.md)
+### 2. Fallback/complex flow
+For nuanced messages, the avatar provides deep context to your main agent.
+
+```
+Message → before_prompt_build → Avatar Decision Chain → identity + state + escalation → context injection → reply
 ```
 
 ## Quick Start
 
-### Prerequisites
-
-- [OpenClaw](https://github.com/openclaw) installed and running
-- Windows (state detection uses Win32 APIs)
-- Feishu/Lark channel configured
-
-### Installation
-
+### Method 1: ClawHub (Recommended)
+Install directly via the ClawHub package manager:
 ```bash
-openclaw plugins install ask-me-first
+clawhub package install ask-me-first
 ```
 
-### Manual Installation
-
-1. **Clone** into your OpenClaw extensions directory:
-   ```bash
-   cd ~/.openclaw/extensions
-   git clone https://github.com/LENKIN233/ask-me-first.git
-   ```
-
-2. **Configure your identity** (optional — the first message sender is auto-registered as admin):
-   - To set up manually: edit `users.json` and replace `ou_your_admin_id_here` with your Feishu userId
-   - Adjust member/guest entries as needed
-
-3. **Restart OpenClaw Gateway**
-
-### First Startup
-
-On first load, the plugin automatically:
-- Creates `~/.openclaw/workspace/ask_me_first/` and `ask_me_first/config/` directories
-- Copies template files (`users.json`, `restricted-mode-prompt.txt`, escalation rules, etc.) to the workspace if they don't already exist
-- Never overwrites your existing configuration
-
-**Zero-config admin setup**: The first person to send a message after installation is automatically registered as admin. No manual `users.json` editing needed — the plugin detects the template placeholder `userId` and replaces it with the real sender's Feishu userId. Subsequent users are resolved normally (member/guest based on `users.json` entries).
-
-### Verify
-
+### Method 2: npm
+Install as a dependency and configure manually:
 ```bash
-openclaw plugins list          # should show ask-me-first
-openclaw plugins doctor        # should report no errors
+npm install ask-me-first
 ```
 
-After restarting the gateway, send any message to your bot. The first sender is auto-registered as admin. Then try:
-
+### Method 3: Git
+Clone the repository into your plugins directory:
+```bash
+git clone https://github.com/LENKIN233/ask-me-first.git
 ```
-/avatar set coding
-```
 
-The bot should reply with a confirmation like `✅ State overridden to: coding`.
+## Persona System
+
+The v2.1.0 update introduces a sophisticated learning architecture that moves beyond static templates.
+
+*   **Conversation-Based Learning**: The plugin observes outbound messages sent by you. It analyzes the intent and tone to update its internal representation of how you speak.
+*   **Editable persona.json**: All learned traits are stored in `persona.json` within your workspace. You can manually edit this file to prune incorrect styles or reinforce specific behaviors.
+*   **Maturity Progression**: The avatar tracks its own confidence. It starts in a "learning" phase and progresses to "confident maturity," where it begins to auto-claim more complex categories.
+*   **Message Classification**: Every incoming message is sorted into one of 10 categories: `greeting`, `ack`, `scheduling`, `status_check`, `routing`, `faq`, `complaint`, `personal`, `decision`, or `unknown`.
+*   **Auto-Claim**: To ensure safety, only low-risk categories (like greetings and acknowledgments) are handled automatically, and only after the avatar has reached sufficient maturity.
 
 ## Project Structure
 
 ```
 ask-me-first/
-├── index.ts                      # Plugin entry point (hooks, commands, services)
-├── openclaw.plugin.json          # Plugin manifest
-├── package.json                  # npm metadata
-├── users.json                    # User identity mapping template
-├── restricted-mode-prompt.txt    # Guest restricted-mode prompt template
-├── src/                          # Core TypeScript source
-│   ├── controller.ts             # AvatarController orchestrator
-│   ├── state/                    # State detection (detector, cache)
-│   ├── identity/                 # Identity resolution & trust
-│   ├── escalation/               # Escalation rules engine
-│   ├── generation/               # Reply formatting
-│   └── tools/                    # Calendar, presence, context, memory
+├── index.ts                       # Plugin entry (hooks, commands, services)
+├── openclaw.plugin.json           # Plugin manifest + config schema
+├── package.json                   # v2.1.0
+├── src/
+│   ├── controller.ts              # AvatarController orchestrator
+│   ├── decision-chain.ts          # Deterministic decision chain (232 lines)
+│   ├── persona/                   # ★ NEW — Persona learning system
+│   │   ├── schema.ts              # PersonaProfile types, validation, merge
+│   │   ├── classifier.ts          # Rule-based message classifier (10 categories)
+│   │   ├── renderer.ts            # System prompt renderer (persona-aware)
+│   │   └── learner.ts             # Conversation observer + trait distiller
+│   ├── state/                     # State detection (Win32 + calendar)
+│   ├── identity/                  # Identity resolution & trust scoring
+│   ├── escalation/                # Three-tier escalation engine
+│   ├── generation/                # Reply formatting
+│   ├── tools/                     # Calendar, presence, context, memory
+│   └── utils/
+│       └── safe-write.ts          # Atomic file writes
 ├── config/
-│   ├── identities.json           # Identity level definitions
-│   ├── escalationRules.json      # Escalation rule configuration
-│   └── templates.json            # Reply templates
+│   ├── persona-seed.json          # ★ Default persona template
+│   ├── identities.json
+│   ├── escalationRules.json
+│   └── templates.json
 ├── prompts/
-│   ├── persona-system-prompt.md  # Main customizable persona template (v1.1.0)
-│   └── avatar-system-prompt.txt  # Core system prompt components
-├── tests/
-│   ├── plugin.test.ts            # Plugin unit tests
-│   ├── smoke.test.ts             # Smoke tests
-│   └── fixtures/
-├── docs/
-│   ├── PITCH.md                  # Full project pitch (Chinese)
-│   ├── deployment.md             # Deployment guide
-│   ├── ops.md                    # Operations guide
-│   └── tuning.md                 # Tuning guide
-├── IMPLEMENTATION.md             # Original design doc (historical reference)
-└── SKILL.md                      # OpenClaw skill description
+│   └── persona-system-prompt.md   # Customizable persona template
+├── tests/                         # 68 tests, 14 suites
+└── docs/
 ```
 
-### Directory Model
+## Runtime Workspace
 
-**Repo source** (this repository / npm package) contains templates and code.
-**Runtime workspace** (`~/.openclaw/workspace/ask_me_first/`) is where the plugin reads/writes at runtime:
-- `users.json` — active user identity data
-- `avatar_state.json` — auto-generated state snapshots
-- `config/escalationRules.json` — active escalation rules
-- `restricted-mode-prompt.txt` — active restricted-mode prompt
+The plugin persists its state in `~/.openclaw/workspace/ask_me_first/`. Key files include:
 
-On first startup, the plugin automatically copies template files from the package into your workspace's `ask_me_first/` directory (only if they don't already exist).
+*   **persona.json**: The distilled personality and rules for your avatar.
+*   **persona_events.jsonl**: A log of observed interactions used for learning.
+*   **avatar_state.json**: The current availability and evidence used for decision making.
+*   **users.json**: Trust scores and identity mappings for your contacts.
 
 ## Configuration
 
-### users.json
+Configuration is managed via `openclaw.plugin.json` or your agent's config:
 
-The main configuration file. Define who can access what:
+*   **Users & Trust**: Define admin users and track trust scores for guests.
+*   **State Detection**: Toggle Windows foreground window detection and Feishu/Lark calendar integration.
+*   **Escalation Rules**: Define which categories of messages should trigger an immediate notification versus an avatar reply.
+*   **Persona Customization**: Adjust the learning rate and default response templates.
 
-| Identity | Info Level | Slash Commands | Escalation |
-|----------|-----------|----------------|------------|
-| `admin`  | owner_only | All (`*`)     | None       |
-| `member` | internal   | Limited set   | Partial    |
-| `guest`  | public     | None          | Auto       |
+## Key Features
 
-### Trust Score System
+*   **Identity-Aware Responses**: Different behavior for admins, colleagues, and strangers.
+*   **Presence Sensing**: Detects when you are in a meeting (via calendar) or focusing (via active window).
+*   **Three-Tier Escalation**: Automatically handles simple tasks, gathers info for medium tasks, and escalates urgent ones.
+*   **Trust Scoring**: Gradually grants more information access to frequent, high-trust contacts.
+*   **Atomic Persistence**: Uses safe-write utilities to prevent data corruption during power loss or crashes.
+*   **Command Interface**: Use `/avatar` to check status or `/avatar set <online|busy|focus|offline>` (admin only) to override auto-detection.
 
-- Trust scores range from 0.0 to 1.0
-- Decay: -0.01/day since last interaction
-- Boost: +0.05 per confirmed reply
-- Higher trust = deeper context access
+## Security
 
-### State Detection
+*   **No Environment Access**: The plugin does not read global environment variables; all credentials (like Feishu API keys) must be passed through the gated plugin config.
+*   **Safe Evaluation**: Replaced `new Function()` with a safe expression evaluator to prevent arbitrary code execution.
+*   **Atomic Writes**: Prevents partial file writes during system interruptions.
+*   **Strict Capabilities**: Declares all filesystem, network, and system execution needs in the manifest for transparency.
 
-The background service detects your current activity every 10 minutes:
-- **Foreground window** analysis (VS Code → coding, Teams → meeting, etc.)
-- **Calendar** integration for scheduled events
-- **Explicit override** via `/avatar set <state>` command
+## API Stability
 
-### Escalation Rules
+| Hook / Command | Type | Status | Description |
+| :--- | :--- | :--- | :--- |
+| `inbound_claim` | Hook | Stable | Intercepts messages before the main agent. |
+| `before_prompt_build` | Hook | Stable | Injects avatar context into the LLM prompt. |
+| `message_received` | Hook | Stable | Tracks trust and identity for incoming traffic. |
+| `message_sending` | Hook | Stable | Observes owner replies for persona learning. |
+| `/avatar` | Command | Stable | View or manually override avatar state. |
 
-Configure in `config/escalationRules.json`:
-- Keyword-based triggers
-- Identity-based routing
-- State-aware decisions (e.g., always escalate during deep work)
+## Limitations
 
-## Key Features (v1.1.0)
-
-- **Avatar Decision Chain** — Every prompt is built dynamically via the `before_prompt_build` hook, ensuring identity-aware context injection.
-- **Customizable Persona** — Define your avatar's personality and rules in `prompts/persona-system-prompt.md`.
-- **Identity-aware context sharing** — Admins get full project context (git logs, open files, TODOs) + personal memory from `MEMORY.md`.
-- **Escalation Logging** — All hand-offs and critical requests are logged to `escalations.json` for manual follow-up.
-- **Native plugin architecture** — Built for the standard OpenClaw plugin lifecycle, no external hacks required.
-- **Trust score system** — Tracks interaction quality; high trust enables deeper context access for regular users.
-- **State sensing** — Automatic detection of coding/meeting/busy states via Windows API and calendar integration.
-- **Explicit state override** — Override your status at any time using the `/avatar` command.
-
-> ⚠️ Slash command access control (blocking unauthorized `/commands` at the gateway layer) is **not possible** via the plugin API alone. This would require a pre-command interception hook that OpenClaw does not yet provide.
-
-## Limitations & API Stability
-
-| Feature | Hook / API | Stability |
-|---------|-----------|-----------|
-| `/avatar` command | `registerCommand` | ✅ Stable — core plugin API |
-| First-startup init | `register()` lifecycle | ✅ Stable — runs on plugin load |
-| Identity injection | `before_prompt_build` | ✅ Stable — deterministic prompt building |
-| Avatar Decision Chain | `before_prompt_build` | ✅ Stable — v1.1.0 core logic |
-| Trust tracking | `message_received` event | ⚠️ **Experimental** — depends on gateway hook availability |
-| Auto-register admin | `message_received` event | ⚠️ **Experimental** — same dependency as above |
-| State detection service | `registerService` | ✅ Stable — core plugin API |
-
-**If `message_received` is unavailable**: Trust scores will not update automatically, and auto-admin registration will not trigger. Workaround: manually edit `users.json` to set the admin userId, and trust scores will remain at their initial values until the hook is supported.
-
-## Docs
-
-- [PITCH.md](docs/PITCH.md) — Full project pitch and design rationale (Chinese)
-- [IMPLEMENTATION.md](IMPLEMENTATION.md) — Original design doc (historical reference)
-- [deployment.md](docs/deployment.md) — Production deployment
-- [ops.md](docs/ops.md) — Operations runbook
-- [tuning.md](docs/tuning.md) — Performance tuning
+*   **Platform Support**: State detection (foreground window) is currently Windows-only.
+*   **Persona Distillation**: While the system learns from conversations, full LLM-based autonomous persona distillation is planned for a future update and currently relies on rule-based trait extraction.
 
 ## License
 
 MIT
-
-## Note
-
-> ⚠️ State detection currently supports **Windows only** (uses Win32 `GetForegroundWindow`).

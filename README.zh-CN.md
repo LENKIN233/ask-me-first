@@ -1,213 +1,143 @@
 [English](README.md) | [中文](README.zh-CN.md)
 
-# Ask Me First v1.1.0 — 个人数字工作分身 (Digital Avatar)
+# Ask Me First — 个人工作分身
 
-> 你的数字第一接触面：让分身先行，守护你的深度专注。
+> 我的工作接口、第一接触面、降低沟通成本减少打断的工作分身。
 
-一套为 [OpenClaw](https://github.com/openclaw) 深度定制的生产级个人工作数字分身系统。它不再仅仅是简单的权限控制，而是在你与外界之间建立了一个具备人格特质、状态感知和决策能力的智能代理层。通过 **分身决策链 (Avatar Decision Chain)**，它能精准识别身份并根据你当前的实时状态替你承接、过滤或升级日常咨询。
+这是一个真正的**工作分身**系统。它拦截收到的消息并自主代你回复，通过观察真实对话学习你的沟通风格，保护你的专注时间。
 
-## 功能介绍
+## v2.1.0 新特性
 
-每一条发给机器人的消息都会进入 `before_prompt_build` 钩子，通过完整的 **分身决策链** 处理：
+*   **人格学习系统**：通过观察你与他人的真实互动，自动提取并进化你的沟通风格。
+*   **inbound_claim 消息拦截**：在消息到达主智能体之前，直接认领并回复低风险、高频次消息（如打招呼、进度确认等）。
+*   **对话式风格学习**：基于对话流的风格捕获，不再依赖死板的模板。
+*   **每用户 persona.json**：精细化的人格定义，支持手动调整和自动演进。
 
-1. **加载人格**：注入可自定义的人格模板 (`prompts/persona-system-prompt.md`)。
-2. **识别身份**：通过会话映射或 `users.json` 确定发送者等级（管理员 / 成员 / 访客）。
-3. **感知状态**：读取当前分身状态（在线 / 忙碌 / 专注 / 离线）。
-4. **决策路由**：运行 `EscalationRouter.decide()` 产生最终决策：
-   - ✅ **直接回答**：分身独立处理常规问题。
-   - ⚠️ **部分回答**：根据信息等级进行上下文脱敏或过滤。
-   - 🔺 **升级本人**：仅在紧急或必要时转接给本人，并记录至 `escalations.json`。
-5. **上下文注入**：
-   - **管理员**：获得完整项目上下文（git 提交、打开的文件、TODO）+ 长期记忆 (`MEMORY.md`)。
-   - **普通用户**：根据权限获取经过滤的受限上下文。
+## 工作原理
 
-## 架构
+Ask Me First 包含两条核心消息处理流程：
 
-```mermaid
-graph TD
-    A[Message Received] --> B[OpenClaw Gateway]
-    B --> C{before_prompt_build}
-    C --> D[Load Persona Template]
-    D --> E[Resolve Identity & State]
-    E --> F[EscalationRouter.decide]
-    F -->|Direct/Partial| G[Inject Context & Memory]
-    F -->|Escalated| H[Record to escalations.json]
-    G --> I[Avatar Response]
-    H --> I
-```
+#### 1. 拦截流程 (inbound_claim)
 
-### 核心组件
+适用于低风险的日常沟通，直接由分身接管，不触发主智能体逻辑。
 
-- **AvatarController**：协调整个分身决策链。
-- **StateDetector**：通过 Win32 API 实时分析前台窗口并集成飞书日历日程。
-- **IdentityResolver**：将发送者 ID 映射为管理员、成员或访客，并维护动态信任分。
-- **EscalationRouter**：基于角色、状态和关键字，决定是分身独立处理、部分回答还是升级。
-- **ReplyFormatter**：将项目上下文和长期记忆根据权限注入分身人格模板。
+`消息 → inbound_claim → 分类器 (Classifier) → 自动认领低风险消息 → LLM 生成分身回复 → { handled: true }`
+
+#### 2. 复杂流程 (before_prompt_build)
+
+适用于需要深入上下文或权限校验的情况，分身作为主智能体的“前哨”提供决策支持。
+
+`消息 → before_prompt_build → 分身决策链 → 身份识别 + 状态感知 + 升级策略 → 上下文注入 → 最终回复`
 
 ## 快速开始
 
-### 前置条件
-
-- 已安装并运行 [OpenClaw](https://github.com/openclaw)
-- Windows 系统（状态检测需调用 Win32 API）
-- 已配置飞书/Lark 通道
-
-### 安装
+推荐使用 ClawHub 进行一键安装：
 
 ```bash
-openclaw plugins install ask-me-first
+clawhub package install ask-me-first
 ```
 
-### 手动安装
-
-1. **克隆**项目到 OpenClaw 的 extensions 目录：
-   ```bash
-   cd ~/.openclaw/extensions
-   git clone https://github.com/LENKIN233/ask-me-first.git
-   ```
-
-2. **配置身份**（可选 — 系统会自动将第一个发消息的人注册为管理员）：
-   - 如需手动设置：编辑 `users.json`，将 `ou_your_admin_id_here` 替换为你的飞书 userId。
-   - 根据需要调整 member/guest 条目。
-
-3. **重启 OpenClaw Gateway**
-
-### 首次启动
-
-插件在首次加载时会自动执行：
-- 创建 `~/.openclaw/workspace/ask_me_first/` 和 `ask_me_first/config/` 目录。
-- 如果工作区尚不存在配置文件，则自动复制模板文件（`users.json`、`restricted-mode-prompt.txt`、升级规则等）。
-- 绝不覆盖你已有的自定义配置。
-
-**管理员零配置设置**：安装后第一个发送消息的用户将被自动注册为管理员。无需手动编辑 `users.json` —— 插件会识别模板中的占位符 `userId` 并将其替换为真实的飞书 userId。后续用户将根据 `users.json` 的配置解析为成员或访客。
-
-### 验证
+也可以通过 npm 安装：
 
 ```bash
-openclaw plugins list          # 应当显示 ask-me-first
-openclaw plugins doctor        # 应当报告无错误
+npm install ask-me-first
 ```
 
-重启 Gateway 后，给你的机器人发送任意消息。第一个发送者将自动注册为管理员。接着可以尝试：
+或通过 Git 源码安装：
 
-```
-/avatar set coding
+```bash
+git clone https://github.com/LENKIN233/ask-me-first.git
 ```
 
-机器人应当回复确认信息，如 `✅ State overridden to: coding`。
+## 人格系统
+
+分身拥有独立的人格定义文件 `persona.json`，支持从冷启动到成熟的完整生命周期：
+
+*   **冷启动 (Seed)**：使用内置的种子配置开始工作。
+*   **学习期 (Learning)**：分身会监听 `message_sending` 钩子，观察主人的回复风格。
+*   **成熟期 (Stable)**：风格趋于稳定，能够精准模仿主人的语气、用词和决策偏好。
+
+**核心能力**：
+*   **消息分类**：自动识别意图（问候、确认、日程、决策、敏感请求等）。
+*   **自动认领**：对低风险意图（如简单的收到、好的）进行秒级自动回复。
 
 ## 项目结构
 
 ```
 ask-me-first/
-├── index.ts                      # 插件入口（Hooks、命令、服务集成）
-├── openclaw.plugin.json          # 插件清单（配置 Schema、UI 提示）
-├── package.json                  # npm 元数据 + OpenClaw 扩展声明
-├── users.json                    # 用户身份映射模板（编辑后拷贝至工作区）
-├── restricted-mode-prompt.txt    # 访客受限模式提示词模板
-├── src/                          # 核心 TypeScript 源码
-│   ├── controller.ts             # AvatarController 编排器
-│   ├── state/                    # 状态检测（检测器、缓存）
-│   ├── identity/                 # 身份解析与信任管理
-│   ├── escalation/               # 升级规则引擎
-│   ├── generation/               # 回复格式化
-│   └── tools/                    # 日历、在离线、上下文、记忆工具
+├── index.ts                       # 插件入口 (hooks, commands, services)
+├── openclaw.plugin.json           # 插件清单 + 配置 Schema
+├── package.json                   # v2.1.0
+├── src/
+│   ├── controller.ts              # AvatarController 编排器
+│   ├── decision-chain.ts          # 确定性决策链 (232 行)
+│   ├── persona/                   # ★ 人格学习系统
+│   │   ├── schema.ts              # PersonaProfile 类型、校验、合并
+│   │   ├── classifier.ts          # 基于规则的消息分类器 (10 类)
+│   │   ├── renderer.ts            # 人格感知的系统提示词渲染
+│   │   └── learner.ts             # 对话观察器 + 特征蒸馏器
+│   ├── state/                     # 状态检测 (Win32 + 日历)
+│   ├── identity/                  # 身份解析 & 信任评分
+│   ├── escalation/                # 三级升级引擎
+│   ├── generation/                # 回复格式化
+│   ├── tools/                     # 日历、在离线、上下文、记忆
+│   └── utils/
+│       └── safe-write.ts          # 原子化文件写入
 ├── config/
-│   ├── identities.json           # 身份等级定义
-│   ├── escalationRules.json      # 升级规则配置
-│   └── templates.json            # 回复模板
+│   ├── persona-seed.json          # ★ 默认人格种子
+│   ├── identities.json
+│   ├── escalationRules.json
+│   └── templates.json
 ├── prompts/
-│   ├── persona-system-prompt.md  # 富人格系统提示词模板 (New)
-│   └── avatar-system-prompt.txt  # 基础分身系统提示词模板
+│   └── persona-system-prompt.md   # 可自定义的人格提示词
+├── tests/                         # 68 项测试, 14 套件
+└── docs/
 ```
 
-### 目录模型
+## 运行时工作区
 
-**代码仓库源码**（本仓库 / npm 包）包含模板和核心代码。
-**运行时工作区**（`~/.openclaw/workspace/ask_me_first/`）是插件在运行时读写数据的地方：
-- `users.json` — 当前活跃的用户身份数据
-- `avatar_state.json` — 自动生成的状态快照
-- `escalations.json` — 升级事件记录日志
-- `config/escalationRules.json` — 活跃的升级规则
-- `prompts/persona-system-prompt.md` — 活跃的人格模板
-- `MEMORY.md` — 仅管理员可访问的长期记忆文件
+插件会在你的 OpenClaw 工作区创建专用目录 `~/.openclaw/workspace/ask_me_first/`。
 
-首次启动时，插件会自动将模板文件从安装包拷贝到工作区的 `ask_me_first/` 目录（仅在文件不存在时执行）。
+这里存储了你的分身“灵魂”：
+*   `persona.json`：定义了你的语气、边界、自主权等。
+*   `persona_events.jsonl`：记录了所有被观察到的对话事件，用于后续的学习蒸馏。
 
 ## 配置
 
-### users.json
+在 `openclaw.plugin.json` 或 `users.json` 中可以配置：
 
-核心配置文件，定义权限边界：
-
-| 身份类型 | 信息等级 | 斜杠命令权限 | 升级策略 |
-|----------|-----------|----------------|------------|
-| `admin`  | owner_only | 全部 (`*`)     | 无需升级       |
-| `member` | internal   | 部分受限   | 部分升级    |
-| `guest`  | public     | 无          | 自动升级       |
-
-### 动态信任分系统
-
-- 信任分范围：0.0 到 1.0。
-- 衰减机制：自上次交互起，每天自动减少 0.01。
-- 增益机制：每次确认有效的回复后增加 0.05。
-- 信任分越高，分身开放的上下文权限越深。
-
-### 状态感知
-
-后台服务每 10 分钟自动检测一次你的当前活动：
-- **前台窗口分析**：识别活跃应用（如 VS Code 对应 coding，Teams 对应 meeting）。
-- **日历集成**：读取飞书日历日程。
-- **显式覆盖**：通过 `/avatar set <state>` 命令进行手动干预。
-
-### 升级规则
-
-在 `config/escalationRules.json` 中配置：
-- 关键词触发逻辑。
-- 基于身份的路由规则。
-- 状态感知决策（例如：在深度工作期间始终升级）。
+*   **信任分系统**：根据互动频率和历史记录动态调整访客信任等级。
+*   **状态感知**：关联飞书日历或 Windows 窗口状态，判断当前是否处于“专注模式”。
+*   **升级规则**：定义哪些词汇或场景必须交由主人亲自处理。
+*   **人格自定义**：手动锁定部分人格字段，防止自动学习覆盖你的特定偏好。
 
 ## 核心特性
 
-- **分身决策链 (Avatar Decision Chain)**：所有处理流转至 `before_prompt_build` 钩子，统一进行身份、状态和路由决策。
-- **富人格系统**：通过 `prompts/persona-system-prompt.md` 模板，让分身具备真实的沟通语气和性格特质。
-- **差异化上下文注入**：
-  - **管理员**：完整的项目全景（Git、TODO、内存/文件上下文）和长期记忆系统。
-  - **成员/访客**：经过权限过滤的受限信息集。
-- **原生插件架构**：深度集成 OpenClaw，所有逻辑封装在 `index.ts` 中。
-- **多维状态感知**：结合 Win32 窗口检测、飞书日历日程以及管理员强制命令 (`/avatar set`)。
-- **动态信任分系统**：基于交互频率和回复有效性动态调整外部用户的访问深度（支持自动衰减）。
-- **升级记录机制**：所有未处理或需要干预的请求将自动记录至 `escalations.json`。
-- **智能初始化**：管理员零配置设置，安装后首个消息发送者即自动注册为管理员。
+*   **全自动语气学习**：支持 tone, formality, verbosity, emoji 偏好学习。
+*   **多层级拦截**：从简单的正则过滤到复杂的 LLM 意图识别。
+*   **Windows 状态感知**：自动识别当前的 IDE、会议软件状态。
+*   **飞书日历集成**：根据日程安排自动切换分身的在线状态。
 
-> ⚠️ **注意**：受限于 OpenClaw 的双模块隔离机制，`/avatar` 命令通过 `before_prompt_build` 中的指令重定向逻辑实现。暂时无法通过 API 拦截网关层的未授权斜杠命令。
+## 安全性
 
-## 限制与 API 稳定性
+*   **零环境变量依赖**：不读取任何敏感环境变量，所有配置均通过插件系统注入。
+*   **安全表达式求值**：采用沙箱化处理，防止远程执行攻击。
+*   **原子写入**：所有状态文件均采用原子写入，确保掉电不丢失、不损坏。
+*   **透明能力声明**：通过 `openclaw.plugin.json` 显式声明所需的所有权限。
 
-| 功能特性 | 依赖项 | 稳定性 |
-|---------|-----------|-----------|
-| `/avatar` 命令 | `registerCommand` | ✅ 稳定 — 核心插件 API |
-| 首次启动初始化 | `register()` 生命周期 | ✅ 稳定 — 随插件加载运行 |
-| 身份信息注入 | `before_prompt_build` 钩子 | ✅ 稳定 — 生产级支持 |
-| 分身决策链 | `before_prompt_build` 钩子 | ✅ 稳定 — 核心逻辑链路 |
-| 信任分追踪 | `message_received` 事件 | ⚠️ **实验性** — 依赖 OpenClaw 事件派发稳定性 |
-| 自动注册管理员 | `message_received` 事件 | ⚠️ **实验性** — 依赖同上 |
-| 状态检测服务 | `registerService` | ✅ 稳定 — 核心插件 API |
+## API 稳定性
 
-**如果 `message_received` 失效**：信任分将无法自动更新，自动注册管理员功能也将无法触发。此时请手动编辑 `users.json` 设置管理员 userId，信任分将保持初始值直至钩子功能可用。
+| 接口 | 稳定性 | 说明 |
+| :--- | :--- | :--- |
+| `inbound_claim` | Stable | 核心消息拦截接口 |
+| `message_sending` | Stable | 用于观察并学习主人风格 |
+| `before_prompt_build` | Stable | 上下文注入接口 |
 
-## 文档
+## 限制
 
-- [PITCH.md](docs/PITCH.md) — 项目完整介绍与设计初衷（中文）
-- [IMPLEMENTATION.md](IMPLEMENTATION.md) — 原始设计文档（历史参考）
-- [deployment.md](docs/deployment.md) — 生产环境部署
-- [ops.md](docs/ops.md) — 运维手册
-- [tuning.md](docs/tuning.md) — 性能调优
+*   **状态检测**：前台窗口检测目前仅支持 Windows 平台。
+*   **Distiller**：本地的大规模语料蒸馏 (Distiller) 仍在开发中，目前依赖在线 LLM 进行小规模学习。
 
 ## 开源协议
 
-MIT
-
-## 备注
-
-> ⚠️ 状态检测目前**仅支持 Windows**（通过 Win32 `GetForegroundWindow` 实现）。
+[MIT](LICENSE)

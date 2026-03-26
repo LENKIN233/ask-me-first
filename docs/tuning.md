@@ -1,87 +1,73 @@
-# 调优指南
+# 调优指南 (v2.1.0)
 
-## 参数调整
+## 人格调优 (Persona Tuning)
 
-### 状态检测
+`persona.json` 是分身的核心大脑，您可以手动编辑其中的字段来微调分身的表现。修改后，请将对应字段名添加到 `learning.locked_fields` 中，以防止后续的自动学习将其覆盖。
+
+### 1. 语气与风格 (Voice)
+
+| 字段 | 可选值 | 说明 |
+|------|--------|------|
+| `voice.formality` | `low` \| `medium` \| `high` | 正式程度。`low` 会使用更多口语，`high` 则偏向商务。 |
+| `voice.verbosity` | `terse` \| `brief` \| `moderate` \| `detailed` | 回复长度偏好。 |
+| `voice.emoji` | `never` \| `rare` \| `moderate` \| `frequent` | 表情符号的使用频率。 |
+| `voice.signature_phrases` | `string[]` | 您的常用短语（如 "收到"、"这就来"）。 |
+
+### 2. 决策边界 (Judgment)
+
+| 字段 | 说明 |
+|------|------|
+| `judgment.autonomous_when` | 分身可以**自主应答**的场景描述（如 "闲聊"、"询问进度"）。 |
+| `judgment.escalate_when` | **必须升级**给本人的场景（如 "涉及金钱"、"敏感决策"）。 |
+| `judgment.annoyances` | 您讨厌的话题，分身会自动识别并进行礼貌回避或重定向。 |
+
+### 3. 学习状态 (Learning)
+
+- **maturity**: 设为 `stable` 可降低自动学习的权重，设为 `seed` 则会积极吸收新的对话风格。
+- **locked_fields**: 填入您不希望被自动更正的路径（如 `["voice.tone", "judgment.escalate_when"]`）。
+
+---
+
+## 插件配置调优
+
+飞书凭证通过 OpenClaw 的插件设置界面配置即可，不再需要设置系统环境变量。
+
+### 状态检测参数
 
 | 参数 | 说明 | 建议值 |
 |------|------|--------|
-| `cacheTTL` | 状态缓存时间（ms） | 300000-600000（5-10 分钟） |
-| `enablePresence` | 本地桌面活跃度检测 | `false`（默认，仅 Windows 桌面端支持开启） |
-| `enableCalendar` | 飞书日历集成 | `true`（需配置凭证） |
-| `calendarLookaheadHours` | 日历查询范围 | 1-2 小时 |
-| `stateRefreshIntervalMs` | 状态刷新间隔 | 600000 (10 分钟) |
+| `stateRefreshIntervalMs` | 状态刷新频率 | 600000 (10 分钟) |
+| `enablePresence` | 桌面活跃度检测 | Windows 环境建议开启 |
+| `enableCalendar` | 飞书日历集成 | 建议开启以准确判定会议状态 |
+| `calendarLookaheadHours` | 日历查询范围 | 1 小时 |
 | `trustDecayRate` | 信任度每日衰减率 | 0.01 |
 
-### 飞书日历配置
+---
 
-环境变量：
+## 规则与决策优化
 
-```
-FEISHU_APP_ID=cli_xxx
-FEISHU_APP_SECRET=xxx
-FEISHU_CALENDAR_ID=primary   # 可选，默认主日历
-```
+### 升级规则 (Escalation Rules)
 
-无凭证时自动降级：日历相关功能返回空结果，不影响其他检测。
+修改 `ask_me_first/config/escalationRules.json`：
+- **priority**: 数值越大优先级越高。
+- **condition**: 安全的逻辑表达式，可访问 `state`、`identity`、`msg` 变量。
+- **原子化写入**: v2.1.0 使用原子化工具更新规则，确保在高并发下配置不损坏。
 
-### 项目上下文
+---
 
-ContextTool 自动检测：
-- **当前任务**：从 `TODO.md`（第一个未完成项）或 `MEMORY.md`（"当前任务" 标题下第一行）读取
-- **最近提交**：`git log --oneline -5`
-- **打开的文件**：PowerShell 枚举 VS Code 窗口标题
-
-### 升级规则
-
-修改 `config/escalationRules.json`：
-
-- `priority`：数值越大优先级越高。显式升级 ≥ 100，敏感话题 ≥ 90，时间承诺 ≥ 85
-- `pattern`：关键词匹配（不区分大小写）
-- `condition`：JavaScript 表达式，可访问 `state`、`identity`、`msg` 三个变量
-- 新增规则：添加对象到 `rules` 数组即可
-
-### 信任分数
-
-`src/identity/resolver.ts` 中的 `updateTrustScore`：
-
-| 触发条件 | Delta |
-|----------|-------|
-| 每次交互 | +0.01 |
-| 本人确认 | +0.05 |
-| 长时间无交互衰减 | -0.01/天（需手动实现定时任务） |
-
-分数范围：0-1，影响升级决策中的 `info_level_mismatch` 规则。
-
-## 模板优化
-
-编辑 `config/templates.json`：
-
-- `answer` 模板：简洁，强调状态和结果
-- `partial` 模板：明确建议升级，提供背景
-- `escalate` 模板：传达已转交，减少焦虑
-
-模板变量：`{{state}}`、`{{answer}}`、`{{context}}`、`{{topic}}`
-
-## /avatar 命令
-
-用户在飞书发送 `/avatar` 可查看当前 Avatar 状态，包括：
-- 可用性、工作模式、可打断度、置信度
-- 检测依据（evidence）
-- 最后更新时间
-
-数据来源：由插件注册的后台服务（Background Service）每 10 分钟自动更新。
-
-## 监控指标
+## 性能与质量指标
 
 | 指标 | 目标 | 说明 |
 |------|------|------|
-| 升级率 | < 30% | `escalate / total`，过高说明规则过严 |
-| 平均置信度 | > 0.8 | `state.confidence` 平均值 |
-| 决策延迟 | < 300ms | `process()` 耗时（不含模型生成） |
+| 自动化测试通过数 | 68 / 68 | 运行 `npm test` 验证。 |
+| 自动认领率 (Claim Rate) | > 40% | 通过 `inbound_claim` 处理的消息比例。 |
+| 升级率 | < 30% | `escalate / total`，过高说明规则过严。 |
+| 状态置信度 | > 0.8 | `state.confidence` 平均值。 |
 
-## 灰度策略
+---
 
-1. 仅对 `infoLevel: internal` 以上用户开启完整决策
-2. guest 用户始终 `escalate` 或固定模板
-3. 监控 `queries.json` 统计后逐步扩大
+## 最佳实践
+
+1. **先观察再锁定**: 初始阶段（Seed 阶段）让分身多观察您的回复，待其生成的 `persona.json` 比较理想后，再锁定核心字段。
+2. **信任分冷启动**: 建议手动在 `users.json` 中为核心协作成员设置较高的初始 `trustScore`。
+3. **Restricted Mode**: 对于不认识的用户（Guest），分身会自动切换到受限模式，不提供任何敏感的项目上下文。
