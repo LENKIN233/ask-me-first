@@ -6,12 +6,24 @@
 
 这是一个真正的**工作分身**系统。它拦截收到的消息并自主代你回复，通过观察真实对话学习你的沟通风格，保护你的专注时间。
 
-## v2.1.0 新特性
+## v2.1.x 新特性
 
 *   **人格学习系统**：通过观察你与他人的真实互动，自动提取并进化你的沟通风格。
 *   **inbound_claim 消息拦截**：在消息到达主智能体之前，直接认领并回复低风险、高频次消息（如打招呼、进度确认等）。
 *   **对话式风格学习**：基于对话流的风格捕获，不再依赖死板的模板。
 *   **每用户 persona.json**：精细化的人格定义，支持手动调整和自动演进。
+
+## OpenClaw v2026.3.23 兼容性声明
+
+本插件已完全适配 **OpenClaw v2026.3.23 插件策略调整**：
+
+*   使用 `definePluginEntry` SDK 入口（v2026.3.22 引入）。
+*   注册 `inbound_claim` 钩子实现消息自主拦截 —— 这是 3.23 时代插件架构的核心能力。
+*   注册 `message_sending` 钩子进行被动对话观察和人格学习。
+*   所有能力均在 `openclaw.plugin.json` 中按新版清单规范声明。
+*   以 `code-plugin`（非 skill）身份发布至 **ClawHub**，符合更新后的分类体系。
+
+最低 SDK 版本：`>=2026.3.22`。推荐：`>=2026.3.23`。
 
 ## 工作原理
 
@@ -67,7 +79,7 @@ git clone https://github.com/LENKIN233/ask-me-first.git
 ask-me-first/
 ├── index.ts                       # 插件入口 (hooks, commands, services)
 ├── openclaw.plugin.json           # 插件清单 + 配置 Schema
-├── package.json                   # v2.1.0
+├── package.json                   # v2.1.2
 ├── src/
 │   ├── controller.ts              # AvatarController 编排器
 │   ├── decision-chain.ts          # 确定性决策链 (232 行)

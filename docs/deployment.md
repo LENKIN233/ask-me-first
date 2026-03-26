@@ -1,4 +1,4 @@
-# 部署指南 (v2.1.0)
+# 部署指南 (v2.1.2)
 
 ## 前置条件
 
@@ -19,7 +19,10 @@
 clawhub package install ask-me-first
 ```
 
-或者手动将插件代码放入 `~/.openclaw/extensions/ask-me-first` 目录下。
+或者通过 Git 克隆仓库后手动放入工作区插件目录：
+```bash
+git clone https://github.com/LENKIN233/ask-me-first.git
+```
 
 ### 2. 初始化与配置
 
@@ -32,7 +35,7 @@ clawhub package install ask-me-first
   - `enableCalendar` — 是否启用日历集成（需填入 Feishu App ID/Secret）。
   - `autoAdminRegistration` — 是否允许自动注册首位管理员。
 
-> **注意**：不再需要配置 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 环境变量。所有凭证均通过插件配置界面安全传入。
+> **注意**：所有凭证（如飞书 App ID/Secret）均通过插件配置界面安全传入，无需配置系统环境变量。
 
 ### 3. 验证安装
 
@@ -40,13 +43,13 @@ clawhub package install ask-me-first
 
 ```bash
 # 查看插件是否已启用
-openclaw plugins list
+clawhub package list --installed
 
 # 运行单元测试
 npm test
 ```
 
-v2.1.0 版本应显示 68 项单元测试全部通过。
+v2.1.2 版本应显示 68 项单元测试全部通过。
 
 ## 验证与测试
 
@@ -72,7 +75,7 @@ v2.1.0 版本应显示 68 项单元测试全部通过。
 ## 常见问题 (FAQ)
 
 **Q: 插件未加载？**
-A: 运行 `openclaw plugins list` 确认 `ask-me-first` 是否已启用。检查 SDK 版本是否满足 `>=2026.3.22`。
+A: 运行 `clawhub package list --installed` 确认 `ask-me-first` 是否已启用。检查 SDK 版本是否满足 `>=2026.3.22`。
 
 **Q: 自动认领不生效？**
 A: 检查 `persona.json` 中的 `judgment.autonomous_when` 是否涵盖了相关意图。初始阶段意图识别可能较保守，随学习加深会逐步优化。

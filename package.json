@@ -1,6 +1,6 @@
 {
   "name": "ask-me-first",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "我的工作接口、第一接触面、降低沟通成本减少打断的工作分身",
   "main": "index.ts",
   "type": "module",

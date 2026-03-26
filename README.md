@@ -6,12 +6,24 @@
 
 Ask Me First is a digital proxy that acts as your professional avatar. It intercepts incoming messages to respond autonomously when you're busy or focused, learning your unique communication style over time. By filtering low-risk interruptions and managing expectations based on your real-time availability, it protects your focus while ensuring your contacts receive immediate, context-aware responses.
 
-## What's New in v2.1.0
+## What's New in v2.1.x
 
 *   **Persona Learning System**: Automatically observes your real message exchanges to distill your communication style and preferences.
 *   **Inbound Claim Interception**: High-performance hook that allows the avatar to "claim" and reply to simple messages (greetings, acknowledgments) before they even reach your main agent.
 *   **Conversation-Based Style Learning**: Learns how you interact with specific people to refine its response accuracy.
 *   **Per-User Persona**: Support for `persona.json` in the workspace, allowing deep customization of the avatar's personality and rules.
+
+## OpenClaw v2026.3.23 Compatibility
+
+This plugin is fully adapted to the **OpenClaw v2026.3.23 plugin strategy changes**:
+
+*   Uses the `definePluginEntry` SDK entry point (introduced in v2026.3.22).
+*   Registers `inbound_claim` hook for autonomous message interception — a core capability enabled by the 3.23-era plugin architecture.
+*   Registers `message_sending` hook for passive conversation observation and persona learning.
+*   All capabilities are declared in `openclaw.plugin.json` per the new manifest requirements.
+*   Published to **ClawHub** as a `code-plugin` (not a skill) per the updated taxonomy.
+
+Minimum SDK version: `>=2026.3.22`. Recommended: `>=2026.3.23`.
 
 ## How It Works
 
@@ -51,7 +63,7 @@ git clone https://github.com/LENKIN233/ask-me-first.git
 
 ## Persona System
 
-The v2.1.0 update introduces a sophisticated learning architecture that moves beyond static templates.
+The v2.1.x update introduces a sophisticated learning architecture that moves beyond static templates.
 
 *   **Conversation-Based Learning**: The plugin observes outbound messages sent by you. It analyzes the intent and tone to update its internal representation of how you speak.
 *   **Editable persona.json**: All learned traits are stored in `persona.json` within your workspace. You can manually edit this file to prune incorrect styles or reinforce specific behaviors.
@@ -65,7 +77,7 @@ The v2.1.0 update introduces a sophisticated learning architecture that moves be
 ask-me-first/
 ├── index.ts                       # Plugin entry (hooks, commands, services)
 ├── openclaw.plugin.json           # Plugin manifest + config schema
-├── package.json                   # v2.1.0
+├── package.json                   # v2.1.2
 ├── src/
 │   ├── controller.ts              # AvatarController orchestrator
 │   ├── decision-chain.ts          # Deterministic decision chain (232 lines)

@@ -1,4 +1,4 @@
-# 调优指南 (v2.1.0)
+# 调优指南 (v2.1.x)
 
 ## 人格调优 (Persona Tuning)
 
@@ -51,7 +51,7 @@
 修改 `ask_me_first/config/escalationRules.json`：
 - **priority**: 数值越大优先级越高。
 - **condition**: 安全的逻辑表达式，可访问 `state`、`identity`、`msg` 变量。
-- **原子化写入**: v2.1.0 使用原子化工具更新规则，确保在高并发下配置不损坏。
+- **原子化写入**: 使用原子化工具更新规则，确保在高并发下配置不损坏。
 
 ---
 
